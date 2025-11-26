@@ -12,84 +12,33 @@ execute:
   echo: false
 ---
 
-## Packages et données
+## Packages and data
 
 ```{r}
+if (!dir.exists("../output")) {
+  dir.create("../output")
+}
 invisible(lapply(c("tidyverse", "lubridate", "ade4", "piecewiseSEM", "nlme", "patchwork", "e1071", "dsem", "kableExtra", "phylopath"),require,character.only = TRUE))
 
-positionnement_palette <- c("A" = "#385438", "B" = "#609060", "C" = "#a8c090")
+position_palette <- c("A" = "#385438", "B" = "#609060", "C" = "#a8c090")
 season_palette <- c('autumn' = '#CA7842', "summer" = "#DDA853", 'winter' = '#8ACCD5', "spring" = "#A4B465" )
 
 # Données faune
-data_sem <- read.csv("../data/SEM_database.csv", sep = ",", na.strings = c("", "NA"))
-data_sem$date <- ymd_hms(data_sem$date, tz = "UTC")
+data_sem_raw <- read.csv("../data/SEM_database.csv", sep = ",", na.strings = c("", "NA"))
+data_sem_raw$date <- ymd_hms(data_sem_raw$date, tz = "UTC")
 
-data_sem <- data_sem %>% 
-  dplyr::select(date, positionnement, profondeur, orientation, season, hum, temp, all_taxa, root)
+data_sem <- data_sem_raw %>% 
+  dplyr::select(date, position, depth, orientation, season, hum, temp, all_taxa, root)
 
 data_sem <- data_sem %>% 
   drop_na()%>%
   rename("root" = root,
          "fauna" = all_taxa)
-if (!dir.exists("../output")) {
-  dir.create("../output")
-}
 ```
 
-Distribution des variables
+## H1/ Effect of land use on soil conditions
 
-```{r}
-variable_labels  <- c(hum = "Soil \nhumidity",
-        temp = "Soil \ntemperature",
-        root = "Root \ndensity",
-        fauna = "Invertebrate \nabundance")
-positionnement_label <- c(A = "Unmanaged \nsystem",
-        C = "Managed \nsystem")
-
-stats <- data_sem %>%
-  dplyr::select(date, positionnement, profondeur, orientation, fauna, root, hum, temp) %>%
-  pivot_longer(cols = c('fauna', 'root','hum', 'temp'), names_to = "variable_name") %>%
-  mutate(variable_name = factor(variable_name,
-                                levels = c("hum", "temp", "root", "fauna")))%>%
-  group_by(variable_name) %>%
-  reframe(
-    mean = mean(value, na.rm = TRUE),
-    variance = var(value, na.rm = TRUE),
-    skewness = skewness(value, na.rm = TRUE),
-    kurtosis = kurtosis(value, na.rm = TRUE)
-  )
-
-tiff("../output/variable_distribution.tiff", width = 3000, height = 800, res = 300)
-data_sem %>%
-  dplyr::select(date, positionnement, profondeur, orientation, fauna, root, hum, temp) %>%
-  pivot_longer(cols = c('hum', 'temp', 'root','fauna'), names_to = "variable_name") %>%
-  mutate(variable_name = factor(variable_name,
-                                levels = c("hum", "temp", "root", "fauna")))%>%
-  ggplot(aes(value)) +
-  geom_vline(xintercept = 0, linewidth = 1, color = 'grey') +
-  geom_histogram(binwidth = 0.1) +
-  facet_grid( ~variable_name, scales = "free",  labeller = labeller(variable_name = variable_labels)) +
-  labs(y=NULL, x=NULL)+
-  theme_minimal() +
-  geom_text(
-    data = stats,
-    aes(x = Inf - 1, y = Inf,
-      label = sprintf("moy=%.2f\nvar=%.2f\nskew=%.2f\nkurt=%.2f",
-                      mean, variance, skewness, kurtosis)),
-    hjust = 1.1, vjust = 1.1, size = 3, color = "black",
-    inherit.aes = FALSE) +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.2),
-    panel.grid.minor = element_blank(),
-    strip.text.y = element_text(angle = 0, size = 12, margin = margin(t = 10, r = 0, b = 0, l = 10)),
-    strip.text.x = element_text(size=12, margin = margin(t = 10, r = 0, b = 10, l = 0)),
-    panel.spacing = unit(1.5, "lines"))
-dev.off()
-```
-
-## H1/ Effet de l'usage du sol sur les conditions édaphiques
-
-### Conditions selon usage du sol
+### Conditions according to land use
 
 Skewness (asymétrie) : \> 0 : queue droite plus longue → valeurs extrêmes positives plus fréquentes, \< 0 : queue gauche plus longue → valeurs extrêmes négatives plus fréquentes, ≈ 0 : distribution symétrique (proche de la normale).
 
@@ -100,15 +49,15 @@ variable_labels  <- c(hum = "Soil \nhumidity",
         temp = "Soil \ntemperature",
         root = "Root \ndensity",
         fauna = "Invertebrate \nabundance")
-positionnement_label <- c(A = "Unmanaged \nsystem",
+position_label <- c(A = "Unmanaged \nsystem",
         C = "Managed \nsystem")
 
 stats <- data_sem %>%
-  dplyr::select(date, positionnement, profondeur, orientation, fauna, root, hum, temp) %>%
+  dplyr::select(date, position, depth, orientation, fauna, root, hum, temp) %>%
   pivot_longer(cols = c('fauna', 'root','hum', 'temp'), names_to = "variable_name") %>%
   mutate(variable_name = factor(variable_name,
                                 levels = c("hum", "temp", "root", "fauna")))%>%
-  group_by(positionnement, variable_name) %>%
+  group_by(position, variable_name) %>%
   reframe(
     mean = mean(value, na.rm = TRUE),
     variance = var(value, na.rm = TRUE),
@@ -118,15 +67,15 @@ stats <- data_sem %>%
 
 tiff("../output/variable_distribution.tiff", width = 3000, height = 1500, res = 300)
 data_sem %>%
-  dplyr::select(date, positionnement, profondeur, orientation, fauna, root, hum, temp) %>%
+  dplyr::select(date, position, depth, orientation, fauna, root, hum, temp) %>%
   pivot_longer(cols = c('hum', 'temp', 'root','fauna'), names_to = "variable_name") %>%
   mutate(variable_name = factor(variable_name,
                                 levels = c("hum", "temp", "root", "fauna")))%>%
-  ggplot(aes(value, fill = positionnement)) +
+  ggplot(aes(value, fill = position)) +
   geom_vline(xintercept = 0, linewidth = 1, color = 'grey') +
   geom_histogram(binwidth = 0.1) +
-  facet_grid(positionnement ~ variable_name, scales = "free",  labeller = labeller(variable_name = variable_labels, positionnement = positionnement_label)) +
-  scale_fill_manual(values = positionnement_palette) +
+  facet_grid(position ~ variable_name, scales = "free",  labeller = labeller(variable_name = variable_labels, position = position_label)) +
+  scale_fill_manual(values = position_palette) +
   guides(fill = "none") +
   labs(y=NULL, x=NULL)+
   theme_minimal() +
@@ -146,7 +95,7 @@ data_sem %>%
 dev.off()
 ```
 
-### Conditions selon les saisons
+### Conditions according to seasons
 
 ```{r}
 variable_labels  <- c(hum = "Soil humidity",
@@ -156,7 +105,7 @@ variable_labels  <- c(hum = "Soil humidity",
 season_levels <- c("winter", "spring", "summer", "autumn")
 
 stats <- data_sem %>%
-  dplyr::select(date, season, profondeur, orientation, fauna, root, hum, temp) %>%
+  dplyr::select(date, season, depth, orientation, fauna, root, hum, temp) %>%
   pivot_longer(cols = c('fauna', 'root','hum', 'temp'), names_to = "variable_name") %>%
   mutate(variable_name = factor(variable_name,
                levels = c("hum", "temp", "root", "fauna")),
@@ -171,7 +120,7 @@ stats <- data_sem %>%
 
 tiff("../output/variable_distribution_across_season.tiff", width = 2800, height = 1600, res = 300)
 data_sem %>%
-  dplyr::select(date, season, profondeur, orientation, fauna, root, hum, temp) %>%
+  dplyr::select(date, season, depth, orientation, fauna, root, hum, temp) %>%
   pivot_longer(cols = c('hum', 'temp', 'root','fauna'), names_to = "variable_name") %>%
   mutate(variable_name = factor(variable_name,
                    levels = c("hum", "temp", "root", "fauna")),
@@ -201,29 +150,28 @@ data_sem %>%
 dev.off()
 ```
 
-## H2/ Effets de l'usage du sol sur les relations entre forçages biotiques et abiotiques
-
-### Fonction pour modéliser le SEM
+## H2/ Effects of land use on the relationships between biotic and abiotic drivers
 
 ```{r}
+#Function for modelling SEM
 sem_fit <- function(data) {
   psem(
     lme(root ~ temp + hum, 
         data = data, 
-        random = ~1 | orientation/profondeur, 
-        correlation = corAR1(form = ~1 | orientation/profondeur)),
+        random = ~1 | orientation/depth, 
+        correlation = corAR1(form = ~1 | orientation/depth)),
     
     lme(fauna ~ temp + hum + root, 
         data = data, 
-        random = ~1 | orientation/profondeur, 
-        correlation = corAR1(form = ~1 | orientation/profondeur)),
+        random = ~1 | orientation/depth, 
+        correlation = corAR1(form = ~1 | orientation/depth)),
     
     temp %~~% hum
   )
 }
 ```
 
-### SEM selon positionnement
+### SEM selon position
 
 ```{r}
 positions <- c("A", "C")
@@ -232,29 +180,29 @@ n_global <- list()
 
 for (pos in positions) {
   data_pos <- data_sem %>%
-    mutate(profondeur = as.factor(profondeur)) %>%
-    filter(positionnement == pos)
+    mutate(depth = as.factor(depth)) %>%
+    filter(position == pos)
   
   n_global[[pos]] <- nrow(data_pos)
-  cat("\nPositionnement", pos, ":", n_global[[pos]], "observations utilisées\n")
+  cat("\nposition", pos, ":", n_global[[pos]], "observations used\n")
   
   models_global[[paste0("model_", pos)]] <- sem_fit(data_pos)
 }
 
 summaries_global <- lapply(models_global, summary)
 
-cat("\n\n===== RÉSUMÉS DES MODÈLES GLOBAUX =====\n")
+cat("\n\n===== SUMMARIES OF GLOBAL MODELS =====\n")
 for (name in names(summaries_global)) {
   cat("\n\n----------------------------\n",
       toupper(name),
       "\n----------------------------\n")
-  cat("Nombre de données mobilisées :", 
+  cat("Number of data points used :", 
       n_global[[sub("model_", "", name)]], "\n")
   print(summaries_global[[name]])
 }
 ```
 
-### **SEM par position x season**
+### **SEM position x season**
 
 ```{r}
 seasons <- c("winter", "spring", "summer", "autumn")
@@ -264,13 +212,13 @@ n_season <- list()
 for (pos in positions) {
   for (s in seasons) {
     data_subset <- data_sem %>%
-      mutate(profondeur = as.factor(profondeur)) %>%
-      filter(positionnement == pos, season == s)
+      mutate(depth = as.factor(depth)) %>%
+      filter(position == pos, season == s)
     
     n_season[[paste0(pos, "_", s)]] <- nrow(data_subset)
     
     if (nrow(data_subset) > 0) {
-      cat("\nPositionnement", pos, "-", s, ":", nrow(data_subset), "observations utilisées\n")
+      cat("\nposition", pos, "-", s, ":", nrow(data_subset), "observations used\n")
       models_season[[paste0("model_", pos, "_", s)]] <- sem_fit(data_subset)
     }
   }
@@ -278,13 +226,13 @@ for (pos in positions) {
 
 summaries_season <- lapply(models_season, summary)
 
-cat("\n\n===== RÉSUMÉS DES MODÈLES PAR SAISON =====\n")
+cat("\n\n===== SUMMARIES OF MODELS BY SEASON =====\n")
 for (name in names(summaries_season)) {
   cat("\n\n----------------------------\n",
       toupper(name),
       "\n----------------------------\n")
   key <- sub("model_", "", name)
-  cat("Nombre de données mobilisées :", n_season[[key]], "\n")
+  cat("Number of data points used :", n_season[[key]], "\n")
   print(summaries_season[[name]])
 }
 ```
@@ -362,10 +310,10 @@ get_part = function(x){
 run_dsem_model <- function(data, site_pos, sem, nrows_sample = NULL) {
   
   data_wide <- data %>%
-    filter(positionnement == site_pos) %>%
-    select(-season, -positionnement) %>%
+    filter(position == site_pos) %>%
+    select(-season, -position) %>%
     pivot_wider(
-      names_from = c(profondeur, orientation),
+      names_from = c(depth, orientation),
       values_from = c(hum, temp, fauna, root),
       values_fn = mean
     )
