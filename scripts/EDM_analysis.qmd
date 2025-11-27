@@ -59,6 +59,8 @@ The `PredictNonlinear()` function provides an evaluation of S-map forecast skill
 
 ```{r}
 rho_theta = PredictNonlinear(dataFrame = data_edm , lib = "1 2399", pred = "1 2399", columns = "all_taxa", target = "all_taxa", E = E) 
+
+theta <-  rho_theta$Theta[which.max(rho_theta$rho)]
 ```
 
 ### Generalized Takens Theorem
@@ -83,7 +85,9 @@ With multivariate time series, there can often be many different valid attractor
 `Multiview()` function constructs all possible embeddings of dimension E with lag up to E-1. These embeddings are ranked by forecast skill (rho) over the lib portion of the data.
 
 ```{r}
-multiview <- Multiview(dataFrame = data_edm, lib = "1 2399", pred = "1 2399", E = 6, columns = "hum temp root all_taxa", target = "all_taxa")
+#multiview <- Multiview(dataFrame = data_edm, lib = "1 2399", pred = "1 2399", E = 6, columns = "hum temp root all_taxa", target = "all_taxa")
 
-Mview$View[which(Mview$View$rho > 0.91), ]
+#Mview$View[which(Mview$View$rho > 0.91), ]
+
+## doesn't work !!!
 ```
