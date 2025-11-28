@@ -15,7 +15,7 @@ execute:
 ## Packages and data
 
 ```{r}
-Sys.setlocale("LC_TIME", "C") 
+invisible(Sys.setlocale("LC_TIME", "C"))
 if (!dir.exists("../output")) {
   dir.create("../output")
 }
@@ -31,11 +31,13 @@ data_sem_raw <- read.csv("../data/SEM_database.csv", sep = ",", na.strings = c("
 data_sem_raw$date <- ymd_hms(data_sem_raw$date, tz = "UTC")
 ```
 
-## H1/ Effect of land use on soil conditions
+## Effect of land use on soil conditions
 
 ### Conditions according to land use
 
 ```{r}
+#| class: full-width
+#| dpi: 72
 variable_labels  <- c(hum = "Soil \nhumidity",
         temp = "Soil \ntemperature",
         root = "Root \ndensity",
@@ -56,8 +58,8 @@ stats <- data_sem_raw %>%
     kurtosis = kurtosis(value, na.rm = TRUE)
   )
 
-tiff("../output/variable_distribution.tiff", width = 3000, height = 1500, res = 300)
-data_sem_raw %>%
+invisible(tiff("../output/variable_distribution.tiff", width = 3000, height = 1500, res = 300))
+variable_distribution_1 <- data_sem_raw %>%
   dplyr::select(date, position, depth, orientation, fauna, root, hum, temp) %>%
   pivot_longer(cols = c('hum', 'temp', 'root','fauna'), names_to = "variable_name") %>%
   mutate(variable_name = factor(variable_name,
@@ -83,12 +85,17 @@ data_sem_raw %>%
     strip.text.y = element_text(angle = 0, size = 12, margin = margin(t = 10, r = 0, b = 0, l = 10)),
     strip.text.x = element_text(size=12, margin = margin(t = 10, r = 0, b = 10, l = 0)),
     panel.spacing = unit(1.5, "lines"))
-dev.off()
+variable_distribution_1
+invisible(dev.off())
+
+variable_distribution_1
 ```
 
 ### Conditions according to seasons
 
 ```{r}
+#| class: full-width
+#| dpi: 72
 variable_labels  <- c(hum = "Soil humidity",
         temp = "Soil temperature",
         root = "Root density",
@@ -109,8 +116,8 @@ stats <- data_sem_raw %>%
     kurtosis = kurtosis(value, na.rm = TRUE)
   )
 
-tiff("../output/variable_distribution_across_season.tiff", width = 2800, height = 1600, res = 300)
-data_sem_raw %>%
+invisible(tiff("../output/variable_distribution_across_season.tiff", width = 2800, height = 1600, res = 300))
+variable_distribution_2 <- data_sem_raw %>%
   dplyr::select(date, season, depth, orientation, fauna, root, hum, temp) %>%
   pivot_longer(cols = c('hum', 'temp', 'root','fauna'), names_to = "variable_name") %>%
   mutate(variable_name = factor(variable_name,
@@ -138,10 +145,13 @@ data_sem_raw %>%
     strip.text.x = element_text(size=12, margin = margin(t = 10, r = 0, b = 10, l = 0)),
     panel.spacing.y = unit(0.5, "lines"),  
   panel.spacing.x = unit(1.5, "lines"))
-dev.off()
+variable_distribution_2
+invisible(dev.off())
+
+variable_distribution_2
 ```
 
-## H2/ Effects of land use on the relationships between biotic and abiotic drivers
+## Effects of land use on the relationships between biotic and abiotic drivers
 
 #### Parameters definition
 
@@ -200,7 +210,7 @@ microclim_data <- data_sem_indices %>% ungroup() %>%
   drop_na() 
 
 acp_microclimate <- dudi.pca(microclim_data, scannf = FALSE, nf = 2)
-s.corcircle(acp_microclimate$co)
+#s.corcircle(acp_microclimate$co)
 var_coord <- acp_microclimate$co[, 1:2]
 var_names <- rownames(var_coord)
 
@@ -210,13 +220,13 @@ microclimate_index <- combn(var_names, 2, function(p) {
   { pair_matrix <- combn(var_names, 2); pair_matrix[, which.min(.)] }
 
 cat("Microclimate index selected :", microclimate_index[1], "and", microclimate_index[2])
-
-
 ```
 
 Graphical representation of indices relative to initial variables
 
 ```{r}
+#| class: full-width
+#| dpi: 72
 fauna_index <- data_sem_indices %>% 
   ggplot(aes(date))+
   geom_line(aes(y= fauna), color="#AAC4F5")+
@@ -245,7 +255,13 @@ hum_index <- data_sem_indices %>% filter(orientation=="O")%>%
   facet_grid(depth~position)+
   theme_minimal()
 
-panel <- (fauna_index | root_index) / (temp_index | hum_index)
+panel <- (fauna_index | root_index) / (temp_index | hum_index) + plot_annotation(title = "Distribution, over time and space, of calculated indices (in black) relative to initial variables (in color)")
+
+invisible(tiff("../output/variable_indices_distribution.tiff", width = 4000, height = 2600, res = 300))
+panel
+invisible(dev.off())
+
+panel
 ```
 
 #### SEM model
@@ -294,9 +310,13 @@ model_fauna_C <- lme(fauna ~ microclimate_index_1 + microclimate_index_2 + root,
         data = data_sem%>% filter(position=="C"), 
         random = ~1 | orientation/depth)
 
+cat("performance model *root ~ microclimate_index_1 + microclimate_index_2* for unmanaged system")
 check_model(model_root_A)
+cat("performance model *fauna ~ microclimate_index_1 + microclimate_index_2* + root for unmanaged system")
 check_model(model_fauna_A)
+cat("performance model *root ~ microclimate_index_1 + microclimate_index_2* for managed system")
 check_model(model_root_C)
+cat("performance model *fauna ~ microclimate_index_1 + microclimate_index_2* + root for managed system")
 check_model(model_fauna_C)
 ```
 
@@ -315,16 +335,13 @@ for (pos in positions) {
       filter(position == pos, as.character(time_step) == t)
     
     if (nrow(data_subset) < 10) {
-      cat("\nposition", pos, "-", t, ": skipped (not enough data)\n")
       next
     }
     
-    cat("\nposition", pos, "-", t, ":", nrow(data_subset), "observations used\n")
     
     mod <- tryCatch(
       sem_fit(data_subset),
       error = function(e) {
-        cat("  → model failed: singular or non-identifiable\n")
         return(NULL)
       }
     )
@@ -378,6 +395,8 @@ results_df <- results_df %>%
 Graphical representation of the SEM results
 
 ```{r}
+#| class: full-width
+#| dpi: 72
 microclimate_index_name  <- c("microclimate_index_1" = microclimate_index[1],
                  "microclimate_index_2" = microclimate_index[2])
 
@@ -394,12 +413,12 @@ g1 <- results_df %>%
       response = as_labeller(function(x) paste0("Response: ", x)),
       predictor = as_labeller(microclimate_index_name))) +
   scale_x_date(date_labels = "%b %Y", date_breaks = "2 months") +
-  labs(x = "Date", y = "Estimate") +
-  theme_minimal(base_size = 12) +
+  labs(x = "Date", y = "Estimate", tilte = "Estimates from SEM regression according to time steps and land use") +
+  theme_minimal(base_size = 10) +
   theme(panel.grid.minor = element_blank(),
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
-    strip.text = element_text(face = "bold", size = 12))
+    strip.text = element_text(face = "bold", size = 10))
 
 
 g2 <-results_df %>%
@@ -412,13 +431,21 @@ g2 <-results_df %>%
     response = as_labeller(function(x) paste0("Response: ", x)),
     predictor = as_labeller(microclimate_index_name))) +
   scale_x_date(date_labels = "%b %Y", date_breaks = "2 months") +
-  labs(x = "Date", y = "Smoothed estimators (loess method)") +
-  theme_minimal(base_size = 12) +
+  labs(x = "Date", y = "Smoothed estimates (loess method)", title = "Smoothed estimates from SEM regression according to time steps and land use") +
+  theme_minimal(base_size = 10) +
   theme(panel.grid.minor = element_blank(),
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
-    strip.text = element_text(face = "bold", size = 12))
+    strip.text = element_text(face = "bold", size = 10))
 
-print(g1)
-print(g2)
+invisible(tiff("../output/Estimates_SEM_regression_distribution.tiff", width = 2800, height = 1600, res = 300))
+g1
+invisible(dev.off())
+
+invisible(tiff("../output/Smoothed_stimates_SEM_regression_distribution.tiff", width = 2800, height = 1600, res = 300))
+g2
+invisible(dev.off())
+
+g1
+g2
 ```
