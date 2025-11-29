@@ -420,48 +420,91 @@ g1 <- results_df %>%
   filter(!str_detect(predictor, "~~") & response != "") %>%
   mutate(se = as.numeric(se)) %>%
   ggplot(aes(time_step, estimate, group = position, color = position, fill = position)) + 
-  geom_hline(yintercept = 0, color= "#FF3838", linetype = "dashed") +
+  geom_hline(yintercept = 0, color= "black") +
   geom_ribbon(aes(ymin = estimate - se, ymax = estimate + se), alpha = 0.4, color = NA) +
-  geom_line(linewidth = 1.5) +
+  geom_line(linewidth = 1) +
   scale_color_manual(values = position_palette) +
   scale_fill_manual(values = position_palette) +  
   facet_grid(predictor ~ response,scales = "free_y", labeller = labeller(
       response = as_labeller(function(x) paste0("Response: ", x)),
       predictor = as_labeller(microclimate_index_name))) +
   scale_x_date(date_labels = "%b %Y", date_breaks = "2 months") +
-  labs(x = "Date", y = "Estimate", tilte = "Estimates from SEM regression according to time steps and land use") +
+  labs(x = "Date", y = "Estimate", title = "Estimates from SEM regression according to time steps and land use") +
   theme_minimal(base_size = 10) +
   theme(panel.grid.minor = element_blank(),
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
-    strip.text = element_text(face = "bold", size = 10))
+    strip.text = element_text(face = "bold", size = 10),
+        panel.border = element_rect(linewidth =  1))
 
+invisible(tiff("../output/Estimates_SEM_regression_distribution.tiff", width = 3000, height = 2000, res = 300))
+g1
+invisible(dev.off())
+```
 
-g2 <-results_df %>%
+```{r}
+# estimates regression
+compute_loess <- function(df) {
+  df2 <- df %>% filter(!is.na(time_step), !is.na(estimate))
+  if (nrow(df2) < 5) {
+    df$loess_pred <- NA_real_
+    return(df)
+  }
+  fit <- try(
+    loess(estimate ~ as.numeric(time_step), data = df2, span = 0.75),
+    silent = TRUE
+  )
+
+  if (inherits(fit, "try-error")) {
+    df$loess_pred <- NA_real_
+    return(df)
+  }
+
+df$loess_pred <- predict(fit, newdata = data.frame(time_step = df$time_step))
+  df
+}
+
+results_smooth <- results_df %>%
   filter(!str_detect(predictor, "~~") & response != "") %>%
-  ggplot(aes(time_step, estimate, group = position, color = position)) + 
-  geom_hline(yintercept = 0, color= "#FF3838", linetype = "dashed") +
-  geom_smooth(method = "loess", size = 1.5, se = TRUE, alpha = 0.1) +
+  group_by(position, predictor, response) %>%
+  arrange(time_step, .by_group = TRUE) %>%
+  group_modify(~ compute_loess(.x)) %>%
+  ungroup()
+```
+
+```{r}
+#| class: full-width
+#| dpi: 72
+g2 <- ggplot(results_smooth,
+       aes(x = time_step, y = loess_pred,
+           group = position, color = position, fill = position)) +
+
+  geom_hline(yintercept = 0, color = "black") +
+  geom_ribbon(aes(ymin = 0, ymax = loess_pred), alpha = 0.8, color = NA) +
+  geom_line(linewidth = 1) +
+
   scale_color_manual(values = position_palette) +
-  facet_grid(predictor ~ response,scales = "free_y", labeller = labeller(
-    response = as_labeller(function(x) paste0("Response: ", x)),
-    predictor = as_labeller(microclimate_index_name))) +
+  scale_fill_manual(values = position_palette) +
+  facet_grid(
+    predictor ~ response,
+    #scales = "free_y",
+    labeller = labeller(
+      response = as_labeller(function(x) paste0("Response: ", x)),
+      predictor = as_labeller(microclimate_index_name)
+    )
+  ) +
   scale_x_date(date_labels = "%b %Y", date_breaks = "2 months") +
-  labs(x = "Date", y = "Smoothed estimates (loess method)", title = "Smoothed estimates from SEM regression according to time steps and land use") +
+  labs(x = "Date", y = "Smoothed estimates (loess)",
+       title = "Smoothed estimates from SEM regression according to time steps and land use") +
   theme_minimal(base_size = 10) +
   theme(panel.grid.minor = element_blank(),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "bottom",
-    strip.text = element_text(face = "bold", size = 10))
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom",
+        strip.text = element_text(face = "bold", size = 10),
+        panel.border = element_rect(linewidth =  1))
 
-invisible(tiff("../output/Estimates_SEM_regression_distribution.tiff", width = 2800, height = 1600, res = 300))
-g1
-invisible(dev.off())
 
-invisible(tiff("../output/Smoothed_stimates_SEM_regression_distribution.tiff", width = 2800, height = 1600, res = 300))
+invisible(tiff("../output/Smoothed_estimates_SEM_regression_distribution.tiff", width = 3000, height = 2000, res = 300))
 g2
 invisible(dev.off())
-
-g1
-g2
 ```
