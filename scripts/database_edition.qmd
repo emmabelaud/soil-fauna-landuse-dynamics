@@ -28,11 +28,14 @@ df <- df_raw %>%
     orientation = substr(scanner, 8, 8)     # O ou E
   )%>%
   mutate(date = ymd_hms(date), 
-         date = if_else(minute(date) == 1,
-                        date - minutes(1),date), 
-         hour = hour(date),minute = minute(date)) %>%
+      date = if_else(minute(date) == 1 & !any(minute(date) == 0),  
+      date - minutes(1),date), 
+         hour = hour(date),minute = minute(date)) %>% # Some timestamps are recorded at minute = 1 instead of minute = 0.In some cases both exist, in others only minute = 1 exists. We want to correct minute = 1 to 0 only if there is no existing row at minute = 0.
   filter(date> "2024-03-01 00:00:00")%>%
   filter(minute == 0, hour %in% c(0, 6, 12, 18))
+
+
+
 
 taxon_list <- unique(df$Predicted.class)
 scanner_list <- unique(df$scanner)
@@ -184,14 +187,12 @@ data_sem <- filter_data(data_sem, min_images = 6, apply_filter = FALSE)
 soil_probe_data <- read.csv("../data/Diams_AF1W_soil.csv") %>% 
   mutate(date = as.POSIXct(date, format = "%Y-%m-%d %H:%M:%S"), 
          depth=as.factor(depth), 
-         position=as.factor(position))
+         position=as.factor(position)) %>% drop_na()
 
 air_probe_data <- read.csv("../data/Diams_AF1W_air.csv")  %>% 
   mutate(date = as.POSIXct(date, format = "%Y-%m-%d %H:%M:%S"), 
-         position=as.factor(position))
+         position=as.factor(position)) %>% drop_na()
 ```
-
-### Micro-climat
 
 Selection of humidity and temperature data
 
@@ -200,151 +201,43 @@ data_sem  <- data_sem %>%
   left_join(soil_probe_data %>% rename(hum=hum_soil, temp=temp_soil) %>% select(depth, position,date, hum, temp),by = c("date" , "depth", "position")) 
 ```
 
-**But here is the procedure for calculating other microclimatic indices**
-
-Calculation of microclimatic indices according to Grooss et al., in prep: median (represents the average without sensitivity to extremes), amplitude (variability over the period), rate of change (variability in the moment), 97.5% maxima (hot or wet extremes) and 2.5% minima (cold or dry extremes).
-
-```{r}
-# Function for calculating climate indices
-microclimate_index_compute <- function(vec) {
-  if (sum(!is.na(vec)) < 2) {
-    return(setNames(rep(NA, 5), c("median", "amplitude", "change_ratio", "max", "min")))
-  }
-  med <- median(vec, na.rm = TRUE)
-  amp <- unname(quantile(vec, 0.95, na.rm = TRUE) - quantile(vec, 0.05, na.rm = TRUE))
-  change <- median(diff(round(vec, 6)), na.rm = TRUE)
-  max_val <- unname(quantile(vec, 0.975, na.rm = TRUE))
-  min_val <- unname(quantile(vec, 0.025, na.rm = TRUE))
-
-  result <- list(
-    median = med,
-    amplitude = amp,
-    change_ratio = change,
-    max = max_val,
-    min = min_val
-  )
-  return(list(result))
-}
-```
-
-```{r}
-time_scale = c("year", "month","hour") # day scale
-soil_probe_data %>%
-  mutate(year = as.factor(year(date)),
-         month = as.factor(month(date)),
-         week = as.factor(isoweek(date)),
-         day = date(date),
-         hour = as.factor(hour(date)),
-         minutes = as.factor(minute(date)))%>%
-  group_by(across(all_of(c("depth", "position", time_scale)))) %>% 
-  reframe(across(all_of(c("temp_soil", "hum_soil")), ~microclimate_index_compute(.), .names = "{.col}")) %>%
-  unnest_wider(temp_soil, names_sep = "_") %>%
-  unnest_wider(hum_soil, names_sep = "_") %>% 
-  mutate(across(where(is.numeric), ~ scale(.)[, 1]))%>%
-  pivot_longer(cols = where(is.numeric),names_to = "variable",values_to = "value")%>%
-  group_by(position, variable, .groups = "drop")%>%
-  reframe(mean_value=mean(value))%>%
-  ggplot(aes(variable, mean_value, group=position, color = position))+
-  geom_point(size=3)+
-  geom_line(linewidth=2)+
-   ylim(-1, 1)+
-  geom_hline(yintercept = 0, linetype = "dashed")+
-  scale_color_manual(values = position_palette)+
-  labs(y = "centred and reduced mean values", title = paste0("comparison of positional modalities according to different microclimatic indices calculated by ", paste(time_scale,collapse = " ")))+
-  theme_minimal()
-```
-
-```{r}
-microclimate_soil_index <- soil_probe_data %>% 
-  mutate(year = as.factor(year(date)),
-         month = as.factor(month(date)),
-         week = as.factor(isoweek(date)),
-         day = date(date),
-         hour = as.factor(hour(date)),
-         minutes = as.factor(minute(date))) %>%
-  group_by(across(all_of(c("position", "depth", time_scale)))) %>% 
-  reframe(across(all_of(c("temp_soil", "hum_soil")), ~microclimate_index_compute(.), .names = "{.col}")) %>% 
-  unnest_wider(temp_soil, names_sep = "_") %>% 
-  unnest_wider(hum_soil, names_sep = "_")
-```
-
-✏️️ *Les indices utilisés sont ceux mesurés à l'échelle de la journée. Le graphique présentant les indices mesurés à une autre échelle montrent des résultats différents \> approfondir la question de l'échelle temporelle d’agrégation des données et ses implications écologiques.*
-
-Performing PCA with the 10 microclimatic indices to identify correlation structures between variables and extract a small number of uncorrelated indices that summarise most of the variability of the indices:
-
-```{r}
-acp <- dudi.pca(microclimate_soil_index[,6:15], scannf = F, nf = 2)
-
-co <- as.data.frame(acp$co)
-co$var <- rownames(co)
-eig_percent <- round(100 * acp$eig / sum(acp$eig), 1)
-x_lab <- paste0("Dimension 1 (", eig_percent[1], " %)")
-y_lab <- paste0("Dimension 2 (", eig_percent[2], " %)")
-circle <- data.frame(x = cos(seq(0, 2 * pi, length.out = 100)),
-                     y = sin(seq(0, 2 * pi, length.out = 100)))
-
-# Fusion des modalités avec les scores individuels
-ind_coords <- as.data.frame(cbind(acp$li, microclimate_soil_index[, 1:2]))
-
-# Moyennes par modalité
-depth_means <- aggregate(cbind(Axis1 = Axis1, Axis2 = Axis2) ~ depth, data = ind_coords, FUN = mean)
-position_means <- aggregate(cbind(Axis1 = Axis1, Axis2 = Axis2) ~ position, data = ind_coords, FUN = mean)
-
-ggplot() +
-  geom_path(data = circle, aes(x = x, y = y), color = "gray70") +
-  geom_segment(data = co, aes(x = 0, y = 0, xend = Comp1, yend = Comp2),
-               arrow = arrow(length = unit(0.2, "cm")), color = "black") +
-  ggrepel::geom_text_repel(data = co, aes(x = Comp1, y = Comp2, label = var),
-                  size = 4, color = "black") +
-  geom_point(data = depth_means, aes(x = Axis1, y = Axis2), color = "#d89060", size = 3) +
-  ggrepel::geom_text_repel(data = depth_means, aes(x = Axis1, y = Axis2, label = depth), color = "#d89060") +
-  geom_point(data = position_means, aes(x = Axis1, y = Axis2), color = "#a8c090", size = 3) +
-  ggrepel::geom_text_repel(data = position_means, aes(x = Axis1, y = Axis2, label = position), color = "#a8c090") +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
-  coord_fixed() +
-  theme_minimal()+
-  labs(x = x_lab, y = y_lab, title = "Correlation circle")
-```
-
-According to PCA, two highly orthogonal variables that we can select are: daily temperature range (temp_soil_amplitude) and daily minimum temperatures (temp_soil_min).
-
-```{r}
-#data_sem  <- data_sem %>% mutate(day = date(date))%>% left_join(microclimate_soil_index %>% select(depth, position,day, temp_soil_amplitude, temp_soil_min),by = c("day" , "depth", "position"))
-```
-
 ## Roots data
 
 ```{r}
 dpi <- 1200 
 pixels_per_cm <- dpi / 2.54 
-root_density <- read.csv("../data/root_pixels_count.csv") 
-root_density<- root_density %>%
-  mutate(image_name = sub("\\.png$", "", root_density$file)) %>%  
+root_density_raw <- read.csv("../data/root_pixels_count.csv") 
+root_density<- root_density_raw %>%
+  mutate(image_name = sub("\\.png$", "", root_density_raw$file)) %>%  
   separate(file, into = c("bloc", "position", "orientation","year","month", "day", "hour", "minute", "fileextension1"), 
            sep = "_|\\.|H|M.| |-", remove = FALSE)%>%
+  mutate(date = ymd_hm(paste(year, month, day, hour, minute)), 
+      date = if_else(minute(date) == 1 & !any(minute(date) == 0),  
+      date - minutes(1),date), 
+         hour = hour(date),minute = minute(date))%>%
   mutate(scanner = as.factor(paste(position, orientation, sep = "_")),
          depth = as.factor(substr(scanner, 2, 3)),
-         position = as.factor(substr(scanner, 1, 1)),  
-         minute = if_else(minute == "01", "00", minute))%>%
-  filter(hour %in% c("00", "06", "12", "18")) %>%
-  mutate(date = ymd_hm(paste(year, month, day, hour, minute)))
+         position = as.factor(substr(scanner, 1, 1)),
+         orientation = as.factor(substr(scanner, 5, 5)), 
+         hour = hour(date),
+         minute = minute(date)) %>%
+  filter(minute == 0, hour %in% c(0, 6, 12, 18))
 
 root_density <- root_density %>%
-  arrange(scanner, date) %>%  
-  group_by(scanner) %>%
+  arrange(depth, position, orientation, date) %>%  
+  group_by(depth, position, orientation,) %>%
   mutate(lag_days = 9,
          date_target = date - days(9),
          date_target_24h = date - days(1)) %>%
   ungroup() %>%
-  left_join(root_density %>% select(scanner, date, root_pixels_count) %>%
+  left_join(root_density %>% select(depth, position, orientation, date, root_pixels_count) %>%
               rename(date_target = date,
                      root_pixels_count_lag = root_pixels_count),
-            by = c("scanner", "date_target"), relationship = "many-to-many") %>%
-  left_join(root_density %>% select(scanner, date, root_pixels_count) %>%
+            by = c("depth", "position", "orientation", "date_target")) %>%
+  left_join(root_density %>% select(depth, position, orientation, date, root_pixels_count) %>%
               rename(date_target_24h = date,
                      root_pixels_count_lag_6h = root_pixels_count),
-            by = c("scanner", "date_target_24h"), relationship = "many-to-many") %>%
+            by = c("depth", "position", "orientation", "date_target_24h")) %>%
   mutate(root_growth_pixel_count = root_pixels_count - root_pixels_count_lag,
          root_mature_pixel_count = root_pixels_count - root_growth_pixel_count,
          root_growth_pixel_count_6h = root_pixels_count - root_pixels_count_lag_6h) %>%
