@@ -25,8 +25,8 @@ position_palette <- c("A" = "#385438", "B" = "#609060", "C" = "#a8c090")
 season_palette <- c('autumn' = '#CA7842', "summer" = "#DDA853", 'winter' = '#8ACCD5', "spring" = "#A4B465" )
 
 # Données faune
-data_sem_raw <- read.csv("../data/SEM_database.csv", sep = ",", na.strings = c("", "NA"))%>%
-  rename("root" = root,
+data_sem_raw <- read.csv("../output/SEM_database.csv", sep = ",", na.strings = c("", "NA"))%>%
+  mutate("root" = root_growth_cm2_count,
          "fauna" = all_taxa)
 data_sem_raw$date <- ymd_hms(data_sem_raw$date, tz = "UTC")
 ```
@@ -440,7 +440,7 @@ results_df <- results_df %>%
                                 tz = "UTC"))
 ```
 
-Graphical representation of the SEM results
+##### SEM estimates distribution
 
 ```{r}
 #| class: full-width
@@ -475,23 +475,15 @@ invisible(dev.off())
 g1
 ```
 
+##### SEM smoothed estimates distribution
+
 ```{r}
 # estimates regression
 compute_loess <- function(df) {
-  df2 <- df %>% filter(!is.na(time_step), !is.na(estimate))
-  if (nrow(df2) < 5) {
-    df$loess_pred <- NA_real_
-    return(df)
-  }
   fit <- try(
-    loess(estimate ~ as.numeric(time_step), data = df2, span = 0.75),
+    loess(estimate ~ as.numeric(time_step), data = df, span = 0.5),
     silent = TRUE
   )
-
-  if (inherits(fit, "try-error")) {
-    df$loess_pred <- NA_real_
-    return(df)
-  }
 
 df$loess_pred <- predict(fit, newdata = data.frame(time_step = df$time_step))
   df

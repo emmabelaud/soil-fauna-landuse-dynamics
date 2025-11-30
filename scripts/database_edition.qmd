@@ -93,8 +93,7 @@ df_complete <- complete_grid %>%
 
 #Creation of a total abundance column, but only for the most frequently observed taxa
 df_complete <- df_complete %>%
-  rowwise() %>%
-  mutate(all_taxa = sum(c_across(all_of(relevant_taxa$Predicted.class)), na.rm = FALSE)) %>%
+  mutate(all_taxa = rowSums(select(., where(is.numeric), -presence), na.rm = FALSE)) %>%
   ungroup()
 ```
 
@@ -293,5 +292,5 @@ data_sem <- data_sem %>%
 
 ```{r}
 data_sem$date <- format(data_sem$date, "%Y-%m-%d %H:%M:%S")
-write.csv(data_sem, "../data/SEM_database.csv", row.names = FALSE, quote = TRUE)
+write.csv(data_sem, "../output/SEM_database.csv", row.names = FALSE, quote = TRUE)
 ```
