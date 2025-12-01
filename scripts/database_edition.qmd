@@ -25,13 +25,11 @@ df <- df_raw %>%
   mutate(
     position = substr(scanner, 4, 4),  # A, B, ou C
     depth = substr(scanner, 5, 6),      # 20 ou 50
-    orientation = substr(scanner, 8, 8)     # O ou E
-  )%>%
-  mutate(date = ymd_hms(date), 
-      date = if_else(minute(date) == 1 & !any(minute(date) == 0),  
-      date - minutes(1),date), 
-         hour = hour(date),minute = minute(date)) %>% 
-# Some timestamps are recorded at minute = 1 instead of minute = 0.In some cases both exist, in others only minute = 1 exists. We want to correct minute = 1 to 0 only if there is no existing row at minute = 0.
+    orientation = substr(scanner, 8, 8),     # O ou E
+    date = ymd_hms(date),
+    date = if_else(minute(date) == 1, date - minutes(1), date),
+    hour = hour(date),
+    minute = minute(date))%>%
   filter(date> "2024-03-01 00:00:00")%>%
   filter(minute == 0, hour %in% c(0, 6, 12, 18))
 ```
@@ -221,7 +219,9 @@ root_density<- root_density_raw %>%
   mutate(date = ymd_hm(paste(year, month, day, hour, minute)), 
       date = if_else(minute(date) == 1 & !any(minute(date) == 0),  
       date - minutes(1),date), 
-         hour = hour(date),minute = minute(date))%>%
+      hour = hour(date),
+      minute = minute(date))%>%
+# Some timestamps are recorded at minute = 1 instead of minute = 0.In some cases both exist, in others only minute = 1 exists. We want to correct minute = 1 to 0 only if there is no existing row at minute = 0.
   mutate(scanner = as.factor(paste(position, orientation, sep = "_")),
          depth = as.factor(substr(scanner, 2, 3)),
          position = as.factor(substr(scanner, 1, 1)),
