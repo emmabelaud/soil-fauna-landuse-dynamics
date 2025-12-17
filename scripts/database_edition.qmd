@@ -34,7 +34,9 @@ df <- df_raw %>%
   filter(minute == 0, hour %in% c(0, 6, 12, 18))
 ```
 
-Selection of the most observed taxa (\> 3000 occurrences)
+### Taxa selection 
+
+First logic : Selection of the most observed taxa (\> 3000 occurrences)
 
 ```{r}
 filter_taxa_df <- function(df, filter_taxa = TRUE, min_occurrences = 3000) {
@@ -199,12 +201,105 @@ air_probe_data <- read.csv("../data/Diams_AF1W_air.csv")  %>%
          position=as.factor(position)) %>% drop_na()
 ```
 
-Selection of humidity and temperature data
+Add soil and athmospheric humidity and temperature data to the main dataframe
 
 ```{r}
 data_sem  <- data_sem %>% 
   left_join(soil_probe_data ,by = c("date" , "depth", "position")) %>% 
   left_join(air_probe_data, by = c("date" ,  "position")) 
+```
+
+### Indices calculation and selection
+
+Definition of the time integration step parameters and maximum allowable missing data rate for calculating the microclimate indices \> **Choice of the daily scale for the moment. But should we use indices? And if so, at what intervals? This choice requires careful consideration ⚠**
+
+```{r}
+time_step_days <- 1
+window_size <- time_step_days * 4
+missing_data_rate <- 0.3
+```
+
+Calculation of microclimatic indices according to Grooss et al., in prep: median (represents the average without sensitivity to extremes), amplitude (variability over the period), rate of change (variability in the moment), 97.5% maxima (hot or wet extremes) and 2.5% minima (cold or dry extremes). Performing dimensionality reduction and selecting the two variables that account for the most variability, i.e. the most orthogonal ones.
+
+```{r}
+# function to compute indices
+vars_to_index <- c("temp_soil", "hum_soil")
+index_names <- c("median", "amplitude", "change_ratio", "max", "min")
+
+index_compute_function <- function(vec) {
+  if (mean(is.na(vec)) > missing_data_rate) {
+    return(c(
+      median = NA, amplitude = NA, change_ratio = NA, max = NA, min = NA
+    ))
+  }
+
+  qs <- quantile(vec, c(0.025, 0.05, 0.95, 0.975), na.rm = TRUE)
+  diffs <- diff(round(vec, 6))
+
+  c(
+    median       = median(vec, na.rm = TRUE),
+    amplitude    = qs[3] - qs[2],
+    change_ratio = median(diffs, na.rm = TRUE),
+    max          = unname(qs[4]),
+    min          = unname(qs[1])
+  )
+}
+
+data_sem_indices <- data_sem %>%
+  arrange(position, orientation, depth, date) %>%
+  group_by(position, orientation, depth) %>%
+  mutate(
+    across(
+      vars_to_index,
+      ~ {
+        m <- rollapplyr(.x, window_size, index_compute_function,
+                        by.column = FALSE, fill = NA)
+        colnames(m) <- index_names
+        as_tibble(m)
+      },
+      .names = "{.col}",
+      .unpack = TRUE
+    )
+  ) %>%
+  ungroup()
+
+head(data_sem_indices)
+
+# index selection
+# based on a dimensionality reduction procedure
+microclim_data <- data_sem_indices %>%
+  select(starts_with("temp_soil_"), starts_with("hum_soil_")) %>%
+  drop_na() %>%
+  select(where(~ sd(.x, na.rm = TRUE) > 0))
+
+acp_microclimate <- dudi.pca(microclim_data, scannf = FALSE, nf = 2)
+
+#s.corcircle(acp_microclimate$co)
+var_coord <- acp_microclimate$co[, 1:2]
+var_names <- rownames(var_coord)
+
+# Calculate cos² (quality of representation) for each variable
+var_cos2 <- rowSums(var_coord^2)
+# filter variables with good representation (e.g., cos² > 0.7)
+good_vars <- var_names[var_cos2 >= 0.7]
+
+# Function to compute cosine of angle between two vectors
+cos_angle <- function(v1, v2) sum(v1 * v2) / (sqrt(sum(v1^2)) * sqrt(sum(v2^2)))
+
+# Find the pair of well-represented variables with minimal absolute cosine (most orthogonal)
+pair_matrix <- combn(good_vars, 2)
+i_min <- which.min(apply(pair_matrix, 2, function(p) cos_angle(var_coord[p[1], ], var_coord[p[2], ])))
+microclimate_index <- pair_matrix[, i_min]
+
+cat("Microclimate index selected :", microclimate_index[1], "and", microclimate_index[2])
+
+# Add selected indices to the database
+data_sem <- data_sem %>%
+  left_join(
+    data_sem_indices %>%
+      select(date, position, orientation, depth, all_of(microclimate_index)),
+    by = c("date", "position", "orientation", "depth")
+  )
 ```
 
 ## Roots data
