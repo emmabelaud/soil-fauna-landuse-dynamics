@@ -21,7 +21,7 @@ if (!dir.exists("../output")) {
 }
 invisible(lapply(c("tidyverse", "lubridate", "ade4", "piecewiseSEM", "performance", "patchwork", "slider", "kableExtra", "phylopath", "e1071", "nlme", "zoo"),require,character.only = TRUE))
 
-position_palette <- c("A" = "#385438", "B" = "#609060", "C" = "#a8c090")
+position_palette <- c("A" = "#5C6F2B",  "C" = "#DE802B")
 season_palette <- c('autumn' = '#CA7842', "summer" = "#DDA853", 'winter' = '#8ACCD5', "spring" = "#A4B465" )
 
 # Fauna data
@@ -73,7 +73,7 @@ run_sem_for_taxon <- function(taxon_var,
 
   message("Running SEM for taxon: ", taxon_var)
 
-  # Préparer les données SEM
+  # Prepare SEM data
   data_sem <- data_indices %>%
     mutate(
       fauna = !!sym(taxon_var),
@@ -110,7 +110,7 @@ run_sem_for_taxon <- function(taxon_var,
     )
   }
 
-  # Stockage
+  # Storage
   results_list <- list()
 
   for (pos in names(windows_list)) {
@@ -139,40 +139,57 @@ run_sem_for_taxon <- function(taxon_var,
 
   if (length(results_list) == 0) return(NULL)
 
-  # Extraction des estimates
-  extract_results <- function(model_name, model_info) {
+  # Extraction des estimations
+extract_results <- function(model_info, model_name) {
+  sm <- summary(model_info$model)
+  coef_table <- as.data.frame(sm$coefficients)
 
-    sm <- summary(model_info$model)
-    coef_table <- as.data.frame(sm$coefficients)
+  r2_table <- as.data.frame(sm$R2)
 
-    p_clean <- coef_table$P.Value %>%
-      as.character() %>%
-      stringr::str_replace("<", "") %>%
-      as.numeric()
-
-    tibble(
-      model            = model_name,
-      taxon            = taxon_var,
-      position         = model_info$position,
-      time_window_start = model_info$time_window_start,
-      response         = coef_table$Response,
-      predictor        = coef_table$Predictor,
-      estimate         = coef_table$Estimate,
-      se               = coef_table$Std.Error,
-      df               = coef_table$DF,
-      t_value          = coef_table$t.value,
-      p_value          = p_clean
-    )
+  if ("Marginal" %in% colnames(r2_table)) {
+    r2_vals <- r2_table %>%
+      rename(response = Response, r2 = Marginal) %>%
+      select(response, r2)
+  } else if ("R.squared" %in% colnames(r2_table)) {
+    r2_vals <- r2_table %>%
+      rename(response = Response, r2 = R.squared) %>%
+      select(response, r2)
+  } else {
+    r2_vals <- r2_table %>%
+      rename(response = Response) %>%
+      mutate(r2 = NA_real_) %>%
+      select(response, r2)
   }
 
-  map2_dfr(
-    names(results_list),
-    results_list,
-    extract_results
+  p_clean <- coef_table$P.Value %>%
+    as.character() %>%
+    stringr::str_replace("<", "") %>%
+    as.numeric()
+
+  tibble(
+    model             = model_name,
+    taxon             = taxon_var,
+    position          = model_info$position,
+    time_window_start = model_info$time_window_start,
+    fisher_c          = sm$global.stat$Fisher.C,
+    fisher_p          = sm$global.stat$P.Value,
+    n_obs             = sm$n,
+    response          = coef_table$Response,
+    predictor         = coef_table$Predictor,
+    estimate          = coef_table$Estimate,
+    std_estimate      = coef_table$Std.Estimate,
+    p_value           = p_clean
   ) %>%
-    mutate(time_step = as.POSIXct(time_window_start,
-                                  format = "%Y-%m-%d",
-                                  tz = "UTC"))
+    left_join(r2_vals, by = "response")
+}
+
+results_df <- purrr::imap_dfr(
+  results_list,
+  extract_results
+)
+
+return(results_df)
+
 }
 ```
 
@@ -181,164 +198,260 @@ window_days <- 14
 step_days   <- 1      
 missing_data_rate <- 0.3
 
-results_all_taxa <- purrr::map_dfr(
+sem_results_raw <- purrr::map_dfr(
   fauna_vars,
   run_sem_for_taxon,
   data_indices = data_sem_raw,
   microclimate_index = microclimate_index,
   window_days = window_days,
   step_days   = step_days,
-  missing_data_rate = missing_data_rate)
-```
-
-## Graphics
-
-### hypothesis about the global environmental force according system considered
-
-```{r}
-alpha_level <- 0.05
-
-data_plot <- results_all_taxa %>%
-  filter(response == "fauna",
-         !str_detect(predictor, "~~")) %>%
-  mutate(
-    significant = p_value < alpha_level,
-    alpha_sig = ifelse(significant, 1, 0.2)
-  )
+  missing_data_rate = missing_data_rate
+)
 ```
 
 ```{r}
-stats <- data_plot %>%
-   group_by(position, predictor) %>%
-   reframe(
-     mean = mean(estimate, na.rm = TRUE),
-     variance = var(estimate, na.rm = TRUE),
-     skewness = skewness(estimate, na.rm = TRUE),
-     kurtosis = kurtosis(estimate, na.rm = TRUE))
-ggplot(data_plot, aes(estimate, fill = position))+
-     geom_histogram(binwidth = 0.1)+
-     scale_fill_manual(values = position_palette) +
-     facet_grid(position ~ predictor, scale ="free")+
-     geom_text(data = stats,aes(x = Inf - 1, y = Inf,
-                                label = sprintf("moy=%.2f\nvar=%.2f\nskew=%.2f\nkurt=%.2f", mean, variance, skewness, kurtosis)),
-               hjust = 1.1, vjust = 1.1, size = 3, color = "black",
-               inherit.aes = FALSE) +
-     theme_minimal()
-```
-
-```{r}
-plot_one_taxon <- function(df, taxon_name) {
-  ggplot(df, aes(
-    x = time_step,
-    y = estimate,
-    color = position,
-    alpha = alpha_sig
-  )) +
-    geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-    geom_point(size = 1.5) +
-    scale_color_manual(values = position_palette) +
-    scale_alpha_identity() +
-    facet_grid(
-      position + predictor ~ .,
-      scales = "free",
-      labeller = labeller(
-        predictor = label_wrap_gen(20)
-      )
-    ) +
-    scale_x_datetime(
-      date_labels = "%b %Y",
-      date_breaks = "1 month"
-    ) +
-    labs(
-      x = "Date",
-      y = "SEM estimate",
-      color = "Position",
-      title = paste("Temporal variation of SEM estimates –", taxon_name),
-      subtitle = "Point opacity indicates statistical significance (p < 0.05)"
-    ) +
-    theme_minimal(base_size = 9) +
-    theme(
-      panel.grid.minor = element_blank(),
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      strip.text = element_text(face = "bold", size = 8),
-      legend.position = "bottom"
+# Fonction pour créer un dataset nul complet
+shuffle_data <- function(df, taxon_vars, microclimate_vars) {
+  df_null <- df %>%
+    mutate(
+      # On mélange la faune
+      across(all_of(taxon_vars), ~sample(.)),
+      # On mélange les racines (pour briser microclimate -> root)
+      root = sample(root),
+      # On garde les microclimats ensemble si on veut garder leur corrélation (~~)
+      # ou on les mélange séparément pour tout casser.
+      across(all_of(microclimate_vars), ~sample(.))
     )
+  return(df_null)
 }
 
+# Exemple de boucle pour générer la distribution nulle
+n_permutations <- 5 
+null_results_list <- list()
 
-plots_by_taxon <- data_plot %>%
-  split(.$taxon) %>%
-  imap(~ plot_one_taxon(.x, .y))
+for(i in 1:n_permutations) {
+  message(paste("Permutation iteration:", i))
+  
+  # On crée un jeu de données "shuffled"
+  data_null_iter <- shuffle_data(data_sem_raw, "fauna") 
+  
+  # On fait tourner votre fonction SEM existante sur ces données
+  res_null <- run_sem_for_taxon(
+    taxon_var = "fauna", 
+    data_indices = data_null_iter,
+    microclimate_index = microclimate_index,
+    window_days = 14,
+    step_days = 1,
+    missing_data_rate = 0.3
+  )
+  
+  if(!is.null(res_null)) {
+    null_results_list[[i]] <- res_null %>% mutate(iteration = i)
+  }
+}
 
+# Combinaison des résultats nuls
+sem_results_null <- bind_rows(null_results_list) %>%
+  group_by(model, taxon, position, time_window_start, n_obs, response, predictor) %>%
+  reframe(estimate = mean(estimate),
+          std_estimate = mean(std_estimate),
+          p_value = mean(p_value),
+          r2 = mean(r2))
 ```
 
+Create null model and perform SEM on
+
 ```{r}
-data_plot %>%
-  group_by(taxon, predictor, position)%>%
-  reframe(estimate = mean(estimate))%>%
-  ggplot(aes(estimate, taxon, group = position, fill = position))+
-  geom_vline(xintercept = 0, color = "orange", linewidth = 0.5)+
-  geom_bar(stat = "identity", position = position_dodge())+
-  facet_grid(~predictor) +
-  scale_fill_manual(values = position_palette)+
-  theme_minimal()
+sem_results <- bind_rows(
+  sem_results_raw %>% mutate(type = "observed"),
+  sem_results_null %>% mutate(type = "nul")
+)
+
+sem_results <- sem_results %>%
+  mutate(path_id = paste(predictor, "->", response)) %>%
+  mutate(day = as.Date(time_window_start))%>%
+  filter(path_id != "~~microclimate_index_2 -> ~~microclimate_index_1")%>%
+  mutate(path_id = str_replace(path_id, "microclimate_index_1", microclimate_index[1]),
+         path_id = str_replace(path_id, "microclimate_index_2", microclimate_index[2]))
 ```
 
-time variation
+Add season variable
 
 ```{r}
-alpha_level <- 0.05
+years <- 2023:2025
+season <- c("spring", "summer", "autumn", "winter")
+seasons <- bind_rows(lapply(years, function(an) {
+  tibble(
+    season = season,
+    date_debut = as.Date(paste0(an, c("-03-21", "-06-21", "-09-21", "-12-21"))),
+    date_fin = as.Date(paste0(c(an, an, an, an + 1), c("-06-20", "-09-20", "-12-20", "-03-20"))))
+}))
 
-g_estimates_time <- results_all_taxa %>%
-  filter(response == "fauna",
-    !str_detect(predictor, "~~")) %>%
-  mutate(significant = p_value < alpha_level,
-    alpha_sig = ifelse(significant, 1, 0.2))%>%
-  ggplot(aes(x = time_step,y = estimate, color = position,alpha = alpha_sig)) +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-  geom_point(size = 1.5) +
+sem_results <- sem_results %>%
+  left_join(seasons %>% rowwise() %>% 
+  mutate(day = list(seq(date_debut, date_fin, by = "day"))) %>% 
+  unnest(cols = c(day)) %>% 
+  dplyr::select(day, season), by = "day")
+```
 
+Graphical representation of estimates
+
+```{r}
+sem_results %>%
+ggplot(aes(x = day, y = std_estimate, color = position)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  # Use geom_smooth to see the trend through the noise of daily fluctuations
+  geom_smooth(method = "loess", span = 0.4, se = FALSE, size = 1) +
+  # Add a rug to see data density
+  #geom_rug(alpha = 0.1) +
+  facet_grid(path_id ~ taxon, scale = "free_y") +
+  scale_color_manual(values = position_palette)+
+  labs(title = "Seasons of Ecological Decoupling",
+    x = "Date", y = "Estimates") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 7, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Temporal stability of ecological "rules"
+
+How consistently environmental factors drive soil fauna activity over time. By calculating the Coefficient of Variation (CV) for each SEM path, we distinguish between "steady" forcing (low CV), where the environment has a predictable impact, and "pulsed" or "unstable" forcing (high CV), where the relationship fluctuates. Comparing these across management positions allows us to test if human intensification destabilizes the ecosystem by replacing natural, steady rhythms with erratic, unpredictable biological responses.
+
+```{r}
+# 1. Aggregate Variability with explicit index mapping
+cv_global <- sem_results %>%
+  group_by(position, path_id) %>%
+  summarise(
+    n_windows = n(),
+    mean_beta = mean(std_estimate, na.rm = TRUE),
+    sd_beta = sd(std_estimate, na.rm = TRUE),
+    cv_beta = (sd_beta / (abs(mean_beta) + 0.01)) * 100,
+    .groups = "drop"
+  ) %>%
+  filter(n_windows >= 10)
+
+# 2. Lollipop Graph
+ggplot(cv_global, aes(x = reorder(path_id, cv_beta), y = cv_beta, color = position)) +
+  # Use geom_linerange for perfect dodging with points
+  geom_linerange(aes(ymin = 0, ymax = cv_beta), 
+                 position = position_dodge(width = 0.6), 
+                 linewidth = 1, alpha = 0.4) +
+  geom_point(position = position_dodge(width = 0.6), size = 3) +
+  coord_flip() +
   scale_color_manual(values = position_palette) +
-  scale_alpha_identity() +
-  facet_grid(
-    position + predictor ~ taxon,
-    scales = "free",
-    labeller = labeller(
-      predictor = label_wrap_gen(20),
-      taxon = label_wrap_gen(15))) +
-  scale_x_datetime(
-    date_labels = "%b %Y",
-    date_breaks = "1 month"
-  ) +
-
   labs(
-    x = "Date",
-    y = "SEM estimate",
-    color = "Position",
-    title = "Temporal variation of SEM estimates (fauna response)",
-    subtitle = "Point opacity indicates statistical significance (p < 0.05)"
+    title = "Stability of Ecological Forcing Rules",
+    subtitle = "Higher CV indicates 'pulsed' or unstable forcing dynamics",
+    x = "SEM Pathways",
+    y = "Volatility (Coefficient of Variation %)",
+    color = "Management Position"
   ) +
-
-  theme_minimal(base_size = 9) +
+  theme_minimal() +
   theme(
-    panel.grid.minor = element_blank(),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    strip.text = element_text(face = "bold", size = 8),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(size = 10),
     legend.position = "bottom")
+```
 
-g_estimates_time
+> **Pistes amélioration ou développement ?**
+>
+> générer CV selon plus de facteurs pour pouvoir faire tests de comparaison
+>
+> est-ce le CV est le meilleur indicateur de variation/stabilité temporelle ?
+>
+> ne sélectionner au préalable que les relations significatives ?
+>
+> décortiquer davantage les variations temporelles en identifiant les transitions abruptes ?
 
+## Spatial Synchrony of Forcing
 
+hen Temperature becomes a strong driver in the "Natural" zone, does it also become a strong driver in the "Anthropized" zone?
+
+-   High Correlation ($r \approx 1$): The management hasn't changed the "timing" of the rule. The forcing remains governed by regional climate.
+
+-   Low/No Correlation ($r \approx 0$): Management has "decoupled" the site from the natural rhythm. The rules of the game in the anthropized zone are now independent of the natural ones.
+
+```{r}
+# 1. Calculate the "Synchrony Index" (Correlation A vs C)
+sync_results <- sem_results %>%
+  select(day, position, taxon, path_id, std_estimate)%>%
+  pivot_wider(names_from = position, values_from = std_estimate) %>%
+  group_by(path_id, taxon) %>%
+  summarise(
+    r_A_vs_C = cor(A, C, use = "pairwise.complete.obs"),
+    n_obs = n()
+  ) %>%
+  filter(!is.na(r_A_vs_C))
+print(sync_results, n=15)
+# 2. Visualization: Forcing Decoupling Lollipop
+ggplot(sync_results, aes(x = reorder(path_id, r_A_vs_C), y = r_A_vs_C)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "#385438", size = 0.5) +
+  geom_segment(aes(xend = reorder(path_id, r_A_vs_C), y = 0, yend = r_A_vs_C), color = "grey70", size = 1) +
+  # The point color changes based on synchrony strength
+  geom_point(aes(color = r_A_vs_C), size = 5) +
+  scale_color_gradient2(low = "#B2182B", mid = "#F7F7F7", high = "#2166AC", midpoint = 0) +
+  coord_flip() +
+  labs(
+    title = "Ecological Decoupling: Pearson correlation (r) of path coefficients over time",
+    x = "Forcing Pathway",
+    y = "Synchrony Index",
+    color = "Synchrony"
+  ) +
+  theme_minimal() +
+  facet_wrap(~taxon) +
+  theme(panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(face = "bold"))
 ```
 
 ```{r}
-data_plot %>% 
-  mutate(month = floor_date(time_step, "month"))%>%
-  group_by(predictor, position, month) %>% 
-  reframe(estimate = mean(estimate))%>%
-  ggplot(aes(month, estimate, fill = position))+
-  geom_bar(stat = "identity", position = position_dodge())+
-  scale_fill_manual(values = position_palette)+
-  facet_grid(~predictor)+
-  theme_minimal()
+# Function to calculate rolling correlation between A and C
+calculate_rolling_sync <- function(df, window_size = 21) {
+  df %>%
+    arrange(day) %>%
+    mutate(roll_cor = slider::slide2_dbl(A, C, 
+                                         ~cor(.x, .y, use = "pairwise.complete.obs"), 
+                                         .before = window_size))
+}
+
+# Assurez-vous que results_all_taxa est bien chargé
+position_sync_binary <- sem_results %>%
+  # Création du nom du chemin (ex: temp_soil_max -> fauna)
+  mutate(path_id = paste(predictor, "->", response)) %>%
+  # Remplacement des noms génériques par les vrais noms du microclimat
+  mutate(path_id = str_replace(path_id, "microclimate_index_1", microclimate_index[1]),
+         path_id = str_replace(path_id, "microclimate_index_2", microclimate_index[2])) %>%
+  # Sélection et passage en format large pour avoir A et C côte à côte
+  select(day, position, taxon, path_id, estimate) %>%
+  pivot_wider(names_from = position, values_from = estimate)
+
+
+# Apply to your paths
+rolling_sync_data <- position_sync_binary %>%
+  group_by(path_id, taxon) %>%
+  nest() %>%
+  mutate(rolling_cor = map(data, calculate_rolling_sync)) %>%
+  select(-data) %>%
+  unnest(rolling_cor)
+
+# Visualization of the flip
+# Filter out the NAs generated by zero-variance windows and smooth the lines
+ggplot(rolling_sync_data %>% filter(!is.na(roll_cor)), 
+       aes(x = day, y = roll_cor, color = taxon)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  # Use geom_smooth to see the trend through the noise of daily fluctuations
+  geom_smooth(method = "loess", span = 0.2, se = FALSE, size = 1) +
+  # Add a rug to see data density
+  geom_rug(alpha = 0.1) +
+  facet_wrap(~ path_id) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "Seasons of Ecological Decoupling",
+    subtitle = "Positive r: Coordinated forcing | Negative r: Antagonistic forcing (A vs C)",
+    x = "Date", y = "Rolling Correlation (r)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 7, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
 ```

@@ -420,7 +420,7 @@ data_sem <- data_sem %>%
   left_join(root_density %>% select(date, position, depth, orientation, root_cm2_count, root_growth_cm2_count, root_mature_cm2_count,root_growth_cm2_count_24h), by = c("date", "position", "depth", "orientation"))
 ```
 
-alternative plus souple : a construire!!
+alternative plus souple sur la recherche de la date précédente : a construire!!
 
 ## Season variable
 
