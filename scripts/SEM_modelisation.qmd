@@ -1,0 +1,358 @@
+---
+title: "Check models performance"
+format: html
+editor: visual
+---
+
+In order to apply SEM analysis, we must make severals choices. The attached script present the analysis and associated results which help us to take the necessary decisions.
+
+## Load package and data
+
+```{r}
+invisible(Sys.setlocale("LC_TIME", "C"))
+invisible(lapply(c("tidyverse", "lubridate", "ade4", "piecewiseSEM", "performance", "lme4", "slider", "purrr", "MuMIn", "nlme", "moments"),require,character.only = TRUE))
+
+# Fauna data
+data_sem_raw <- read.csv("../output/SEM_database.csv", sep = ",", na.strings = c("", "NA"))%>%
+  mutate("hum" = hum_soil,
+         "temp" = temp_soil,
+         "root" = root_cm2_count,
+         "fauna" = all_taxa,
+         position=as.factor(position),
+         date = ymd_hms(date, tz = "UTC"))
+# taxa list 
+fauna_vars <- readLines("../output/fauna_vars.txt")
+
+# microclimate index 
+microclimate_index <- readLines("../output/microclimate_index.txt")
+
+#set.seed(123)
+```
+
+Data transformation
+
+```{r}
+# to transfrom (sqrt) only positive values of fauna variables: data_sem_raw <- data_sem_raw %>% mutate(across(all_of(fauna_vars), ~ ifelse(. >= 0, sqrt(.), .)),  across(where(is.numeric), ~ as.numeric(scale(.))))
+
+# to transfrom (log) only positive values of fauna variables: 
+data_transformed <- data_sem_raw %>% mutate(across(all_of(c(fauna_vars, "root")), ~ ifelse(!is.na(.), sqrt(.)+sqrt(.+1), .)),  across(where(is.numeric), ~ as.numeric(scale(.))))
+    
+# to scale all variables : data_sem_raw <- data_sem_raw %>% mutate(across(where(is.numeric), ~ as.numeric(scale(.))))
+```
+
+Model parameters
+
+```{r}
+window_days <- 14
+step_days <- 1
+missing_data_rate <- 0.3
+n_windows <- 2
+```
+
+## Utility Functions
+
+### Generation of time windows
+
+```{r}
+# This function generates overlapping time windows of fixed
+# duration, shifted by a constant time step.
+create_rolling_windows <- function(df, window_days, step_days) {
+  start_dates <- seq(min(df$date), max(df$date) - days(window_days) + hours(6), by = paste(step_days, "days"))
+  
+  windows <- map(start_dates, ~ filter(df, date >= .x & date < .x + days(window_days)))
+  names(windows) <- format(start_dates, "%Y-%m-%d")
+  return(windows)
+}
+```
+
+### Unique definition of the SEM model
+
+```{r}
+# This function defines the SEM structure applied to each
+# rolling window. The structure is fixed across all taxa,
+# positions, and time windows.
+#
+# Components:
+# - root biomass explained by microclimate
+# - fauna explained by microclimate and root
+# - random effects nested by orientation / depth
+# - AR(1) temporal autocorrelation
+fit_psem <- function(data, m_indices) {
+  psem(
+    lme(root ~ microclimate_1 + microclimate_2, data = data,
+        random = ~ 1 | orientation / depth, 
+        correlation = corAR1(form = ~ 1 | orientation / depth)),
+    lme(fauna ~ microclimate_1 + microclimate_2 + root, data = data,
+        random = ~ 1 | orientation / depth, 
+        correlation = corAR1(form = ~ 1 | orientation / depth)),
+    microclimate_1 %~~% microclimate_2
+  )
+}
+```
+
+### Main pipeline function
+
+```{r}
+run_sem_pipeline <- function(taxon_var, data_raw, m_indices, 
+                             window_days = 14, step_days = 1, 
+                             min_rate = 0.3, n_windows = NULL) {
+  
+  message("Processing: ", taxon_var)
+  
+  # Prepare data
+  sem_data <- data_raw %>%
+    mutate(fauna = !!sym(taxon_var),
+           microclimate_1 = !!sym(m_indices[1]),
+           microclimate_2 = !!sym(m_indices[2]),
+           depth = as.factor(depth)) %>%
+    select(date, position, orientation, depth, fauna, root, microclimate_1, microclimate_2)
+
+  positions <- unique(sem_data$position)
+  
+  # Process each position
+  results_all <- map(positions, function(pos) {
+    df_pos <- filter(sem_data, position == pos)
+    windows <- create_rolling_windows(df_pos, window_days, step_days)
+    
+    # Filter for completeness
+    valid_windows <- keep(windows, ~ (nrow(drop_na(.x)) / (window_days * 16)) >= min_rate)
+    
+    # Sampling Logic
+    if (!is.null(n_windows) && length(valid_windows) > n_windows) {
+      valid_windows <- valid_windows[sample(seq_along(valid_windows), n_windows)]
+    }
+    
+    # Fit and Extract
+    map(names(valid_windows), function(w_name) {
+      win_data <- drop_na(valid_windows[[w_name]])
+      model <- tryCatch(fit_psem(win_data, m_indices), error = function(e) NULL)
+      if (is.null(model)) return(NULL)
+      
+      # --- EXTRACTION ---
+      sm <- summary(model)
+      coefs <- as.data.frame(sm$coefficients)
+      r2_raw <- as.data.frame(sm$R2)
+      # Dynamically identify columns to avoid "Column doesn't exist" errors
+      col_cond <- grep("R.squared|Conditional", names(r2_raw), value = TRUE)[1]
+      col_marg <- grep("Marginal", names(r2_raw), value = TRUE)[1]
+      r2_df <- r2_raw %>%
+        mutate(
+          r2_cond = .[[col_cond]],
+          r2_marginal = if(!is.na(col_marg)) .[[col_marg]] else NA_real_
+        ) %>%
+        select(response = Response, r2_cond, r2_marginal)
+      
+      # Base stats for the final database
+      res_stats <- tibble(
+        taxon = taxon_var, position = pos, time_window_start = w_name,
+        n_obs = sm$n, response = coefs$Response, predictor = coefs$Predictor,
+        estimate = coefs$Estimate, std_estimate = coefs$Std.Estimate,
+        p_value = as.numeric(str_replace(coefs$P.Value, "<", ""))
+      ) %>% left_join(r2_df, by = "response")
+
+      # Detailed Diagnostics (only if we are testing/checking)
+      diag_stats <- NULL
+      if (!is.null(n_windows)) {
+        lme_mods <- keep(model, inherits, "lme")
+        diag_stats <- map_dfr(lme_mods, function(m) {
+          res <- residuals(m, type = "normalized")
+          fit <- fitted(m)
+          tibble(
+            model_id = paste(taxon_var, pos, w_name, sep="_"),
+            response = all.vars(formula(m))[1],
+            n_obs = length(res),
+            hetero_strength = cor(abs(res), fit, method = "spearman", use = "complete.obs"),
+            p_homo = cor.test(abs(res), fit, method = "spearman")$p.value,
+            skewness = skewness(res, na.rm = TRUE),
+            kurtosis = kurtosis(res, na.rm = TRUE),
+            p_normality = shapiro.test(res)$p.value
+          )%>% left_join(r2_df, by = "response")
+        })
+      }
+      
+      return(list(stats = res_stats, diags = diag_stats))
+    })
+  }) %>% flatten() %>% compact()
+  
+  # --- FORMAT OUTPUT ---
+  # If n_windows is NULL, we just want the big dataframe for the database
+  if (is.null(n_windows)) {
+    return(map_dfr(results_all, "stats"))
+  } else {
+    # If testing, return a list with both coefficients and diagnostics
+    return(list(
+      summary = map_dfr(results_all, "stats"),
+      diagnostics = map_dfr(results_all, "diags")
+    ))
+  }
+}
+```
+
+## Execution
+
+### Check procedure
+
+```{r}
+# Evaluate SEM model residuals in terms of:
+# - heteroscedasticity (Spearman correlation of |residuals| vs fitted)
+# - normality (skewness and kurtosis of residuals)
+# - classical tests (Shapiro-Wilk, Spearman for info only)
+# Include number of observations to contextualize diagnostics
+# Define explicit thresholds for interpretation:
+hetero_threshold_low      <- 0.2  # |ρ| < 0.2 → low heteroscedasticity
+hetero_threshold_moderate <- 0.4  # 0.2 ≤ |ρ| < 0.4 → moderate
+skewness_threshold        <- 1    # |skewness| < 1 → acceptable
+kurtosis_min              <- 2    # kurtosis > 2
+kurtosis_max              <- 6    # kurtosis < 6
+
+# For a FAST test:
+# Perform a check on 2 windows per position
+check_run <- run_sem_pipeline(fauna_vars[1], data_transformed, microclimate_index, n_windows = 2)
+diagnostic_summary <- check_run$diagnostics %>%
+  mutate(
+    # Categorize heteroscedasticity magnitude
+    hetero_level = case_when(
+      abs(hetero_strength) < hetero_threshold_low      ~ "low",
+      abs(hetero_strength) < hetero_threshold_moderate ~ "moderate",
+      TRUE                                             ~ "strong"),
+    # Evaluate normality based on skewness and kurtosis
+    normality_ok = (abs(skewness) < skewness_threshold) &
+                    (kurtosis > kurtosis_min & kurtosis < kurtosis_max),
+    # Overall model validity
+    is_ok = (abs(hetero_strength) < hetero_threshold_moderate) &
+            (abs(skewness) < (skewness_threshold + 0.5))  # slightly more tolerant
+  ) %>%
+  # Select and order informative columns
+  select(
+    model_id,
+    response,
+    n_obs,          
+    hetero_strength,
+    hetero_level,
+    skewness,
+    kurtosis,
+    normality_ok,
+    p_normality,
+    p_homo,
+    r2_marginal,
+    r2_cond,
+    is_ok
+  )
+
+print(diagnostic_summary)
+diagnostic_summary %>%
+  count(is_ok) %>%
+  mutate(
+    proportion = n / sum(n))
+
+```
+
+### final database
+```{r}
+sem_results_raw <- map_dfr(fauna_vars, ~ run_sem_pipeline(.x, data_transformed, microclimate_index, n_windows = NULL))
+```
+
+```{r}
+# --- Null Model Generation ---
+n_perm <- 5  # Number of iterations for the null distribution
+
+sem_results_null <- map_dfr(1:n_perm, function(i) {
+  message(paste("Permutation iteration:", i))
+  
+  # Create shuffled dataset: break links between microclimate, roots, and fauna
+  data_null <- data_transformed %>% 
+    mutate(across(all_of(c(fauna_vars, "root")), ~sample(.)))
+  
+  # Run pipeline on shuffled data (usually on a sample to save time)
+  # Returns a flat dataframe because n_windows is specified
+  run_sem_pipeline(fauna_vars[1], data_null, microclimate_index, n_windows = 5) %>%
+    mutate(iteration = i, type = "null")
+})
+
+# --- Final Consolidation ---
+sem_results <- bind_rows(mutate(sem_results_raw, type = "observed"), sem_results_null) %>%
+  mutate(path_id = paste(predictor, "->", response),
+         day = as.Date(time_window_start)) %>%
+  filter(!str_detect(path_id, "~~")) # Clean up correlations if necessary
+```
+
+## ??
+### Model diagnostics
+
+```{r}
+# Diagnostics focus on magnitude of deviations rather
+# than hypothesis testing, to remain robust with
+# large sample sizes and many models.
+
+diagnostics_all <- map_dfr(names(models_all), function(mod_name) {
+  
+  current_psem <- models_all[[mod_name]]$model
+  lme_models <- keep(current_psem, inherits, "lme")
+  
+  map_dfr(lme_models, function(mod) {
+    
+    res <- residuals(mod, type = "normalized")
+    fit <- fitted(mod)
+    n_obs <- length(res)  # nombre d’observations incluses
+    
+    tibble(
+      model_id = mod_name,
+      response = all.vars(formula(mod))[1],
+      
+      # Strength of heteroscedasticity
+      hetero_strength = cor(abs(res), fit,
+                            method = "spearman",
+                            use = "complete.obs"),
+      
+      # Deviation from normality
+      skewness = skewness(res, na.rm = TRUE),
+      kurtosis = kurtosis(res, na.rm = TRUE),
+      
+      # Classical tests (informational)
+      p_normality = shapiro.test(res)$p.value,
+      p_homo = cor.test(abs(res), fit,
+                        method = "spearman")$p.value,
+      
+      # Model fit
+      r2_marginal = tryCatch(r2(mod)$R2_marginal, error = function(e) NA),
+      r2_cond = tryCatch(r2(mod)$R2_conditional, error = function(e) NA),
+      
+      # Number of observations
+      n_obs = n_obs
+    )
+  })
+})
+```
+
+
+## Season mapping
+
+```{r}
+add_seasons <- function(df) {
+  years <- 2023:2025
+  seasons_ref <- bind_rows(lapply(years, function(an) {
+    tibble(
+      season = c("spring", "summer", "autumn", "winter"),
+      date_debut = as.Date(paste0(an, c("-03-21", "-06-21", "-09-21", "-12-21"))),
+      date_fin = as.Date(paste0(c(an, an, an, an + 1), c("-06-20", "-09-20", "-12-20", "-03-20")))
+    )
+  }))
+  
+  # Join based on the 'day' column
+  df %>%
+    left_join(
+      seasons_ref %>% 
+        rowwise() %>% 
+        mutate(day = list(seq(date_debut, date_fin, by = "day"))) %>% 
+        unnest(day) %>% 
+        select(day, season), 
+      by = "day"
+    )
+}
+```
+
+## Database writing
+
+```{r}
+write.csv(sem_results, "../output/SEM_results_database.csv", row.names = FALSE, quote = TRUE)
+```
