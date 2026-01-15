@@ -85,7 +85,7 @@ taxa_list <- df %>%
   mutate(n_taxon = n()) %>%
   ungroup() %>%
   mutate(prop_taxon = n_taxon / n()) %>%
-  filter(prop_taxon >= 0.05)
+  filter(prop_taxon >= 0.08)
 
 # select remaining taxa
 writeLines(unique(taxa_list$Predicted.class), con = "../output/fauna_vars.txt")
