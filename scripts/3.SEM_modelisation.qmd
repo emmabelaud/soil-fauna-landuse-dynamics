@@ -1,0 +1,242 @@
+---
+title: "Check models performance"
+format: html
+editor: visual
+---
+
+## Environment and parameter loading
+
+This section loads the statistical engine and the parameters determined during the sensitivity analysis phase to ensure consistency.
+
+```{r}
+#| label: setup
+#| message: false
+
+invisible(Sys.setlocale("LC_TIME", "C"))
+libs <- c("tidyverse", "lubridate", "piecewiseSEM", "performance", "lme4", 
+          "purrr", "nlme", "moments", "car", "jsonlite", "knitr")
+invisible(lapply(libs, require, character.only = TRUE))
+
+# Load Global Parameters (from the sensitivity analysis)
+if(file.exists("../output/model_parameters.txt")) {
+  best_params <- read_json("../output/model_parameters.txt")
+  WIN_DAYS   <- as.numeric(best_params$selected_window)
+  MIN_RATE   <- as.numeric(best_params$selected_min_rate)
+  TRANSFO    <- as.character(best_params$selected_transform)
+} else {
+  # Default safety parameters if config file is missing
+  WIN_DAYS <- 14; MIN_RATE <- 0.3; TRANSFO <- "sqrt_plus_one"
+  warning("Configuration file not found. Using default fallback parameters.")
+}
+
+message(paste0("Using Optimized Config: Window=", WIN_DAYS, "d, Rate=", MIN_RATE, ", Transfo=", TRANSFO))
+```
+
+## Data loading and preprocessing
+
+Handles data cleaning, variable mapping, and ecological transformations.
+```{r}
+#| label: data-preparation
+
+# Load Raw Database
+data_sem_raw <- read.csv("../output/SEM_database.csv", sep = ",", na.strings = c("", "NA")) %>%
+  mutate(
+    position = as.factor(position),
+    depth    = as.factor(depth),
+    date     = ymd_hms(date, tz = "UTC"),
+    root = root_cm2_count)
+
+# Load Metadata
+fauna_vars         <- c("all_taxa", readLines("../output/fauna_vars.txt"))
+microclimate_index <- readLines("../output/microclimate_index.txt")
+
+# Apply Chosen Transformation
+data_transformed <- data_sem_raw %>%
+  mutate(across(all_of(intersect(fauna_vars, names(.))), function(x) {
+    if (TRANSFO == "sqrt_plus_one") {
+      return(if_else(!is.na(x), sqrt(x) + sqrt(x + 1), x))
+    }
+    if (TRANSFO == "log") {
+      return(if_else(!is.na(x), log1p(x), x))
+    }
+    if (TRANSFO == "hellinger") {
+      total <- sum(x, na.rm = TRUE)
+      return(if_else(!is.na(x), sqrt(x / total), x))
+    }
+    if (TRANSFO == "box_cox") {
+      return(if_else(!is.na(x), ((x + 1)^0.5 - 1) / 0.5, x))
+    }
+    
+    return(x)
+  })) %>%
+  # Standardize all numeric data to Z-scores (Mean=0, SD=1)
+  # This allows direct comparison of 'path coefficients' between different units.
+  mutate(across(where(is.numeric), ~ as.numeric(scale(.)))) 
+```
+
+## Analytical functions
+
+```{r}
+#| label: rolling-window-generator
+# Creates list of data slices based on a sliding time window
+create_rolling_windows <- function(df, window_days, step_days = 1) {
+  start_dates <- seq(min(df$date), 
+                     max(df$date) - days(window_days) + hours(6), 
+                     by = paste(step_days, "days"))
+  
+  windows <- map(start_dates, ~ filter(df, date >= .x & date < .x + days(window_days)))
+  names(windows) <- format(start_dates, "%Y-%m-%d")
+  return(windows)
+}
+```
+
+
+```{r}
+#| label: SEM-structure
+# This function defines the SEM structure applied to each
+# rolling window. The structure is fixed across all taxa,
+# positions, and time windows.
+#
+# Components:
+# - root biomass explained by microclimate
+# - fauna explained by microclimate and root
+# - random effects nested by orientation / depth
+# - AR(1) temporal autocorrelation 
+fit_psem <- function(data, m_indices) {
+  psem(
+    lme(root ~ microclimate_1 + microclimate_2, data = data,
+        random = ~ 1 | orientation / depth, 
+        correlation = corAR1(form = ~ 1 | orientation / depth)),
+    lme(fauna ~ microclimate_1 + microclimate_2 + root, data = data,
+        random = ~ 1 | orientation / depth, 
+        correlation = corAR1(form = ~ 1 | orientation / depth)),
+    microclimate_1 %~~% microclimate_2
+  )
+}
+```
+
+
+```{r}
+#| label: fixed-pipeline
+# Pipeline Wrapper : Orchestrates data filtering and model fitting per taxon/position
+
+run_sem_pipeline <- function(taxon_var, data_raw, m_indices, 
+                             window_days, min_rate) {
+  
+  cat("\n--- Processing Taxon:", taxon_var, "---\n")
+  # Standardize column names for the SEM formula
+  sem_data <- data_raw %>%
+    mutate(fauna = !!sym(taxon_var),
+           microclimate_1 = !!sym(m_indices[1]),
+           microclimate_2 = !!sym(m_indices[2])) %>%
+    select(date, position, orientation, depth, fauna, root, microclimate_1, microclimate_2)
+  
+  positions <- unique(sem_data$position)
+
+  map_dfr(positions, function(pos) {
+    df_pos  <- filter(sem_data, position == pos)
+    windows <- create_rolling_windows(df_pos, window_days, step_days = 1)
+    
+    if(length(windows) == 0) return(NULL)
+    
+    # QUALITY FILTER: Only keep windows with enough successful sensor readings
+    # Window_days * 16 readings per day is the theoretical max as we have 4 images per day according to 2 depths and 2 orientations
+    valid_wins <- keep(windows, ~ (nrow(drop_na(.x)) / (window_days * 16)) >= min_rate)
+    
+    cat(paste0("Pos ", pos, ": ", length(valid_wins), "/", length(windows), " windows passed filter.\n"))
+    
+    if(length(valid_wins) == 0) return(NULL)
+    
+    map_dfr(names(valid_wins), function(w_name) {
+      win_data <- drop_na(valid_wins[[w_name]])
+      
+      # Variance Check: Models fail if data is constant (e.g., all zeros)
+      if(sd(win_data$fauna) == 0 || sd(win_data$root) == 0) return(NULL)
+      
+      # Fit SEM and catch convergence errors
+      model <- tryCatch(fit_psem(win_data, m_indices), error = function(e) NULL)
+      if (is.null(model)) return(NULL)
+      
+      # Summary Extraction
+      sm <- summary(model)
+      coefs <- as.data.frame(sm$coefficients)
+
+      # Extraction of R-Squared (Marginal = fixed effects only, Conditional = fixed + random)      
+      r2_raw <- as.data.frame(sm$R2)
+      r2_df <- r2_raw %>%
+        mutate(r2_cond = .[[grep("R.squared|Conditional", names(.))[1]]],
+               r2_marg = .[[grep("Marginal", names(.))[1]]]) %>%
+        select(response = Response, r2_cond, r2_marg)
+      
+      tibble(
+        taxon = taxon_var, position = pos, date_start = as.Date(w_name),
+        n_obs = sm$n, response = coefs$Response, predictor = coefs$Predictor,
+        estimate = coefs$Estimate, std_estimate = coefs$Std.Estimate,
+        p_value = as.numeric(str_replace(coefs$P.Value, "<", ""))
+      ) %>% left_join(r2_df, by = "response")
+    })
+  })
+}
+```
+
+## Model execution
+
+```{r}
+#| label: execution
+
+# A. Generate Observed Results
+message(">>> Running Observed Models...")
+sem_results_raw <- map_dfr(fauna_vars, ~ run_sem_pipeline(.x, data_transformed, microclimate_index, WIN_DAYS, MIN_RATE))
+
+# B. Generate Null Distribution (Permutation)
+# Permute the data to create a baseline of "random chance"
+# This helps confirm that your observed path coefficients are not just noise.
+n_perm <- 30
+message(">>> Generating Null Distribution (n=30)...")
+sem_results_null <- map_dfr(1:n_perm, function(i) {
+  # Shuffling variables independently breaks the causal links
+  data_null <- data_transformed %>% 
+    mutate(across(all_of(c(fauna_vars, "root", microclimate_index)), ~sample(.)))
+  
+  # Run on 'all_taxa' as a representative for null baseline
+  run_sem_pipeline(fauna_vars[1], data_null, microclimate_index, WIN_DAYS, MIN_RATE) %>%
+    mutate(iteration = i)
+})
+
+# Summarize Null Baseline for comparison
+sem_null_summary <- sem_results_null %>%
+  group_by(response, predictor) %>%
+  summarise(
+    null_mean_estimate = mean(estimate, na.rm = TRUE),
+    null_sd_estimate   = sd(estimate, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+##Consolidation and export
+
+```{r}
+#| label: consolidation
+
+# Merge Observed and Null Summaries
+sem_results <- sem_results_raw %>%
+  mutate(type = "observed") %>%
+  left_join(sem_null_summary, by = c("response", "predictor")) %>%
+  # Filter out correlated errors (~~) to keep only causal paths (->)
+  filter(!str_detect(predictor, "~~")) %>%
+  mutate(path_id = paste(predictor, "->", response))
+
+# Season Mapping Helper
+add_seasons <- function(df) {
+  seasons <- tibble(
+    month = 1:12,
+    season = c("Winter","Winter","Spring","Spring","Spring","Summer","Summer","Summer","Autumn","Autumn","Autumn","Winter")
+  )
+  df %>% mutate(month = month(date_start)) %>% left_join(seasons, by = "month")
+}
+
+sem_results <- add_seasons(sem_results)
+
+# Final Save
+write.csv(sem_results, "../output/SEM_results_database.csv", row.names = FALSE)
+```
