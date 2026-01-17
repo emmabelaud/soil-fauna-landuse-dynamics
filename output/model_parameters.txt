@@ -1,0 +1,5 @@
+{
+  "selected_window": [30],
+  "selected_min_rate": [0.4],
+  "selected_transform": ["log"]
+}
