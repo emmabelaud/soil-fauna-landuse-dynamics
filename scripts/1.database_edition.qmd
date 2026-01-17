@@ -13,6 +13,7 @@ library(lubridate)
 library(ade4)
 library(jsonlite)
 library(zoo)
+library(data.table)
 ```
 
 ## Fauna data
@@ -209,7 +210,7 @@ filter_data <- function(data, min_images = 6, apply_filter = F) {
     ungroup() %>%
     mutate(
       year = as.factor(year(date)),
-      month = as.factor(month(date, label = TRUE, abbr = TRUE))
+      month = as.factor(lubridate::month(date, label = TRUE, abbr = TRUE))
     )
   
   data_for_plot <- data
@@ -361,66 +362,114 @@ writeLines(microclimate_index, con = "../output/microclimate_index.txt")
 
 ## Roots data
 
+This script uses **`data.table`** to calculate root growth by performing high-speed "rolling joins." Instead of requiring exact timestamp matches, it uses `roll = +Inf` to search backwards for the nearest available image within a specific biological window (2 days for a 9-day lag; 12 hours for a 1-day lag). By calculating the difference in pixel counts between the current and recovered historical images, it derives root expansion metrics while automatically handling missing data points and sensor noise.
+
 ```{r}
-#load and clean roots data
+# SETUP & CONSTANTS ---
 dpi <- 1200 
-pixels_per_cm <- dpi / 2.54 
-root_density_raw <- read.csv("../data/root_pixels_count.csv") 
-root_density<- root_density_raw %>%
-  mutate(image_name = sub("\\.png$", "", root_density_raw$file)) %>%  
-  separate(file, into = c("bloc", "position", "orientation","year","month", "day", "hour", "minute", "fileextension1"), 
-           sep = "_|\\.|H|M.| |-", remove = FALSE)%>%
-  mutate(date = ymd_hm(paste(year, month, day, hour, minute)), 
-      date = if_else(minute(date) == 1 & !any(minute(date) == 0),  
-      date - minutes(1),date), 
-      hour = hour(date),
-      minute = minute(date))%>%
-# Some timestamps are recorded at minute = 1 instead of minute = 0.In some cases both exist, in others only minute = 1 exists. We want to correct minute = 1 to 0 only if there is no existing row at minute = 0.
-  mutate(scanner = as.factor(paste(position, orientation, sep = "_")),
-         depth = as.factor(substr(scanner, 2, 3)),
-         position = as.factor(substr(scanner, 1, 1)),
-         orientation = as.factor(substr(scanner, 5, 5)), 
-         hour = hour(date),
-         minute = minute(date)) %>%
-  filter(minute == 0, hour %in% c(0, 6, 12, 18))
+# Pre-calculate the pixel-to-cm2 conversion factor
+pixels_per_cm_sq <- (dpi / 2.54)^2 
+
+# Using fread for high-performance loading of large CSVs
+root_density_raw <- fread("../data/root_pixels_count.csv") 
+
+# DATA CLEANING & TIMESTAMP STANDARDIZATION 
+root_density <- root_density_raw[, `:=`(
+  image_name = sub("\\.png$", "", file)
+)][, c("bloc", "pos", "orient", "yr", "mon", "day", "hr", "min", "ext") := 
+     tstrsplit(file, "_|\\.|H|M.| |-", fill = NA)
+][, date := ymd_hm(paste(yr, mon, day, hr, min))]
+
+# Convert to POSIXct and handle minute-level precision issues
+root_density[, date := as.POSIXct(date)]
+root_density[, minute := minute(date)]
+
+# Standardize: If record is at MM:01, shift back to MM:00 (aligning scanning intervals)
+root_density[minute == 1, date := date - 60]
+
+# Keep only standardized 6-hour interval observations
+root_density <- root_density[minute(date) == 0 & hour(date) %in% c(0, 6, 12, 18)]
+
+# Create structural factors for grouping
+root_density[, `:=`(
+  scanner     = as.factor(paste(pos, orient, sep = "_")),
+  depth       = as.factor(substr(pos, 2, 3)),
+  position    = as.factor(substr(pos, 1, 1)),
+  orientation = as.factor(orient)
+)]
+
+# Set Keys: Crucial for performance. This sorts data and allows binary search joins.
+setkey(root_density, depth, position, orientation, date)
+
+# TEMPORAL TARGETING
+# Define the theoretical "previous dates" we want to find values for
+root_density[, `:=`(
+  date_target_9d = date - days(9),
+  date_target_1d = date - days(1)
+)]
+
+#  ROLLING JOIN: 9-DAY LAG (2-day tolerance)
+# Goal: Find the closest image recorded roughly 9 days ago.
+ref_9d <- root_density[, .(depth, position, orientation, 
+                           date_found_9d = date, 
+                           pixels_9d = root_pixels_count)]
+setkey(ref_9d, depth, position, orientation, date_found_9d)
+
+# roll = +Inf: Look for the nearest date <= target date (only looks backwards)
+root_density <- ref_9d[root_density, 
+                       on = .(depth, position, orientation, date_found_9d = date_target_9d), 
+                       roll = +Inf]
+
+# Validate proximity: If the found image is > 2 days away from target, discard it (NA)
+root_density[, diff_9d := abs(as.numeric(difftime(date_found_9d, date - days(9), units = "secs")))]
+root_density[, root_pixels_count_lag := ifelse(diff_9d <= 172800, pixels_9d, NA)]
+
+# Clean technical columns
+root_density[, c("date_found_9d", "pixels_9d", "diff_9d") := NULL]
+
+# ROLLING JOIN: 1-DAY LAG (12-hour tolerance)
+ref_1d <- root_density[, .(depth, position, orientation, 
+                           date_found_1d = date, 
+                           pixels_1d = root_pixels_count)]
+setkey(ref_1d, depth, position, orientation, date_found_1d)
+
+root_density <- ref_1d[root_density, 
+                       on = .(depth, position, orientation, date_found_1d = date_target_1d), 
+                       roll = +Inf]
+
+# Validate proximity: Max 12-hour gap allowed
+root_density[, diff_1d := abs(as.numeric(difftime(date_found_1d, date - days(1), units = "secs")))]
+root_density[, root_pixels_count_lag_1d := ifelse(diff_1d <= 43200, pixels_1d, NA)]
+
+root_density[, c("date_found_1d", "pixels_1d", "diff_1d") := NULL]
+
+# METRIC CALCULATIONS (Pixels & Area) 
+root_density[, `:=`(
+  root_growth_pixel_count    = root_pixels_count - root_pixels_count_lag,
+  root_growth_pixel_count_1d = root_pixels_count - root_pixels_count_lag_1d
+)]
+
+# Convert pixel counts to Area (cm2)
+root_density[, `:=`(
+  root_cm2_count            = root_pixels_count / pixels_per_cm_sq,
+  root_growth_cm2_count     = root_growth_pixel_count / pixels_per_cm_sq,
+  root_mature_cm2_count     = (root_pixels_count - root_growth_pixel_count) / pixels_per_cm_sq,
+  root_growth_cm2_count_24h = root_growth_pixel_count_1d / pixels_per_cm_sq
+)]
+
+# Treat negative growth as zero to focus strictly on root growth
+root_density[root_growth_cm2_count_24h < 0, root_growth_cm2_count_24h := 0]
+
+# FINAL MERGE
+# Join the calculated root metrics back into the Structural Equation Modeling (SEM) dataset
+setDT(data_sem)
+data_sem <- merge(data_sem, 
+                  root_density[, .(date, position, depth, orientation, 
+                                   root_cm2_count, root_growth_cm2_count, 
+                                   root_mature_cm2_count, root_growth_cm2_count_24h)], 
+                  by = c("date", "position", "depth", "orientation"), 
+                  all.x = TRUE)
 ```
-
-```{r}
-root_density <- root_density %>%
-  arrange(depth, position, orientation, date) %>%  
-  group_by(depth, position, orientation,) %>%
-  mutate(lag_days = 9,
-         date_target = date - days(9),
-         date_target_24h = date - days(1)) %>%
-  ungroup() %>%
-  left_join(root_density %>% select(depth, position, orientation, date, root_pixels_count) %>%
-              rename(date_target = date,
-                     root_pixels_count_lag = root_pixels_count),
-            by = c("depth", "position", "orientation", "date_target")) %>%
-  left_join(root_density %>% select(depth, position, orientation, date, root_pixels_count) %>%
-              rename(date_target_24h = date,
-                     root_pixels_count_lag_6h = root_pixels_count),
-            by = c("depth", "position", "orientation", "date_target_24h")) %>%
-  mutate(root_growth_pixel_count = root_pixels_count - root_pixels_count_lag,
-         root_mature_pixel_count = root_pixels_count - root_growth_pixel_count,
-         root_growth_pixel_count_6h = root_pixels_count - root_pixels_count_lag_6h) %>%
-  mutate(root_cm2_count = root_pixels_count / (pixels_per_cm^2),
-         root_growth_cm2_count = root_growth_pixel_count / (pixels_per_cm^2),
-         root_mature_cm2_count = root_mature_pixel_count / (pixels_per_cm^2),
-         root_growth_cm2_count_24h = (root_growth_pixel_count_6h / (pixels_per_cm^2))/24)%>%
-  mutate(root_growth_cm2_count_24h = case_when(
-    root_growth_cm2_count_24h < 0 ~ 0,
-    TRUE ~ root_growth_cm2_count_24h
-  ))
-
-na_root_density <- root_density%>%
-  summarise(across(where(is.numeric), ~ sum(is.na(.))))
-
-data_sem <- data_sem %>%   
-  left_join(root_density %>% select(date, position, depth, orientation, root_cm2_count, root_growth_cm2_count, root_mature_cm2_count,root_growth_cm2_count_24h), by = c("date", "position", "depth", "orientation"))
-```
-
-alternative plus souple sur la recherche de la date précédente : a construire!!
 
 ## Season variable
 
