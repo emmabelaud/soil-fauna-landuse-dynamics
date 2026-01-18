@@ -22,19 +22,21 @@ if(file.exists("../output/model_parameters.txt")) {
   best_params <- read_json("../output/model_parameters.txt")
   WIN_DAYS   <- as.numeric(best_params$selected_window)
   MIN_RATE   <- as.numeric(best_params$selected_min_rate)
-  TRANSFO    <- as.character(best_params$selected_transform)
+  TRANSFO_ROOT  <- as.character(best_params$transform_root)
+  TRANSFO_FAUNA <- as.character(best_params$transform_fauna)
 } else {
   # Default safety parameters if config file is missing
-  WIN_DAYS <- 14; MIN_RATE <- 0.3; TRANSFO <- "sqrt_plus_one"
+  WIN_DAYS <- 14; MIN_RATE <- 0.3; TRANSFO_ROOT <- "sqrt_plus_one"; TRANSFO_FAUNA <- "sqrt_plus_one"
   warning("Configuration file not found. Using default fallback parameters.")
 }
 
-message(paste0("Using Optimized Config: Window=", WIN_DAYS, "d, Rate=", MIN_RATE, ", Transfo=", TRANSFO))
+message(paste0("Using Optimized Config: Window=", WIN_DAYS, "d, Rate=", MIN_RATE, ", Transfo root=", TRANSFO_ROOT, ", Transfo fauna=", TRANSFO_FAUNA))
 ```
 
 ## Data loading and preprocessing
 
 Handles data cleaning, variable mapping, and ecological transformations.
+
 ```{r}
 #| label: data-preparation
 
@@ -51,24 +53,22 @@ fauna_vars         <- c("all_taxa", readLines("../output/fauna_vars.txt"))
 microclimate_index <- readLines("../output/microclimate_index.txt")
 
 # Apply Chosen Transformation
+# Helper function for individual transformations
+apply_transfo <- function(x, method) {
+  if (is.na(method) || method == "none") return(x)
+  if (method == "sqrt_plus_one") return(sqrt(x) + sqrt(x + 1))
+  if (method == "log")           return(log1p(x))
+  if (method == "hellinger")     return(sqrt(x / sum(x, na.rm = TRUE)))
+  if (method == "box_cox")       return(((x + 1)^0.5 - 1) / 0.5)
+  return(x)
+}
+#Apply Differential Transformations
 data_transformed <- data_sem_raw %>%
-  mutate(across(all_of(intersect(fauna_vars, names(.))), function(x) {
-    if (TRANSFO == "sqrt_plus_one") {
-      return(if_else(!is.na(x), sqrt(x) + sqrt(x + 1), x))
-    }
-    if (TRANSFO == "log") {
-      return(if_else(!is.na(x), log1p(x), x))
-    }
-    if (TRANSFO == "hellinger") {
-      total <- sum(x, na.rm = TRUE)
-      return(if_else(!is.na(x), sqrt(x / total), x))
-    }
-    if (TRANSFO == "box_cox") {
-      return(if_else(!is.na(x), ((x + 1)^0.5 - 1) / 0.5, x))
-    }
-    
-    return(x)
-  })) %>%
+  # Transformation de la racine
+  mutate(root = apply_transfo(root, TRANSFO_ROOT)) %>%
+  # Transformation de la faune (toutes les colonnes de faune)
+  mutate(across(all_of(intersect(fauna_vars, names(.))), 
+                ~ apply_transfo(., TRANSFO_FAUNA))) %>%
   # Standardize all numeric data to Z-scores (Mean=0, SD=1)
   # This allows direct comparison of 'path coefficients' between different units.
   mutate(across(where(is.numeric), ~ as.numeric(scale(.)))) 
@@ -89,7 +89,6 @@ create_rolling_windows <- function(df, window_days, step_days = 1) {
   return(windows)
 }
 ```
-
 
 ```{r}
 #| label: SEM-structure
@@ -114,7 +113,6 @@ fit_psem <- function(data, m_indices) {
   )
 }
 ```
-
 
 ```{r}
 #| label: fixed-pipeline
