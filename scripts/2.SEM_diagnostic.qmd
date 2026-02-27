@@ -11,40 +11,41 @@ execute:
   echo: true
 ---
 
-## Overview
+# Overview
 
-### Role in the pipeline
+## Role in the pipeline
 
 This script is the **second step** of the SEM pipeline, following:
 
-1.  `data_preparation.qmd` — assembles the full SEM database
+1. `data_preparation.qmd` — assembles the full SEM database
 
 Its outputs are consumed directly by:
 
-3.  `check_models_performance.qmd` — full rolling-window SEM execution
-4.  `results_visualisation.qmd` — figure production and ecological interpretation
+3. `check_models_performance.qmd` — full rolling-window SEM execution
+4. `results_visualisation.qmd` — figure production and ecological interpretation
 
-### What this script produces
+## What this script produces
 
 | Output | File | Description |
-|---------------------|------------------|---------------------------------|
+|--------|------|-------------|
 | Full benchmark table | `benchmark_results_database.csv` | Diagnostic statistics for every parameter combination × response variable |
 | Selected model parameters | `model_parameters.txt` | Optimal window duration, completeness threshold, and per-variable transformations, saved as JSON |
 
-### Statistical approach
+## Statistical approach
 
 The causal model has two structural equations:
 
-$$\text{Root} \leftarrow \beta_1 \cdot \text{microclimate}_1 + \beta_2 \cdot \text{microclimate}_2$$ $$\text{Fauna} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{Root}$$
+$$\text{Root} \leftarrow \beta_1 \cdot \text{microclimate}_1 + \beta_2 \cdot \text{microclimate}_2$$
+$$\text{Fauna} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{Root}$$
 
 Both equations use a **nested random intercept** (`orientation / depth`) and an **AR(1) correlation structure** to account for temporal autocorrelation within scanner groups. Before fitting, all variables are z-score standardised so path coefficients are directly comparable across taxa and predictors.
 
-### Sensitivity analysis rationale
+## Sensitivity analysis rationale
 
 Three structural choices must be validated before running the full SEM:
 
 | Parameter | Question | Values tested |
-|----------------------|--------------------|------------------------------|
+|-----------|----------|---------------|
 | **Window duration** | How many days of data are needed for a stable fit? | 5, 7, 10, 14, 21, 28, 30 days |
 | **Min. data completeness** | How many missing images can be tolerated per window? | 10 % – 50 % |
 | **Transformation** | Which variance-stabilising transform best normalises counts? | none, Freeman-Tukey, log, Box-Cox, Hellinger |
@@ -52,20 +53,20 @@ Three structural choices must be validated before running the full SEM:
 These three parameters are crossed in a **full factorial grid** (7 × 5 × 5 = 175 combinations). For each combination, the pipeline runs on **50 randomly sampled windows** per land-use position and reports four diagnostics per fitted model:
 
 | Diagnostic | Metric | Threshold |
-|---------------------------|-------------------|--------------------------|
-| Heteroscedasticity | Spearman ρ between \|residuals\| and fitted values | \< 0.4 |
-| Skewness | Absolute skewness of normalised residuals | \< 1.5 |
-| Collinearity | Maximum VIF across predictors | \< 5 |
+|------------|--------|-----------|
+| Heteroscedasticity | Spearman ρ between \|residuals\| and fitted values | < 0.4 |
+| Skewness | Absolute skewness of normalised residuals | < 1.5 |
+| Collinearity | Maximum VIF across predictors | < 5 |
 | Explanatory power | Marginal and conditional R² | — |
 
-### Selection criterion
+## Selection criterion
 
 The optimal configuration is chosen by a **two-step procedure**:
 
-1.  For each response variable (root, fauna) **independently**, select the transformation maximising `prop_valid_models × avg_R²_marginal` — balancing diagnostic validity with explanatory power.
-2.  Across both responses **jointly**, find the (window, min_rate) pair maximising `combined_validity × mean_R²`, where `combined_validity = prod(prop_valid_root, prop_valid_fauna)`. Using the product rather than the mean ensures that neither response can mask a poor fit in the other.
+1. For each response variable (root, fauna) **independently**, select the transformation maximising `prop_valid_models × avg_R²_marginal` — balancing diagnostic validity with explanatory power.
+2. Across both responses **jointly**, find the (window, min_rate) pair maximising `combined_validity × mean_R²`, where `combined_validity = prod(prop_valid_root, prop_valid_fauna)`. Using the product rather than the mean ensures that neither response can mask a poor fit in the other.
 
-------------------------------------------------------------------------
+---
 
 ## 1. Setup
 
@@ -117,7 +118,7 @@ fauna_vars         <- c("all_taxa", readLines("../output/fauna_vars.txt"))
 microclimate_index <- readLines("../output/microclimate_index.txt")
 ```
 
-------------------------------------------------------------------------
+---
 
 ## 2. Functions
 
@@ -147,8 +148,8 @@ create_rolling_windows <- function(df, window_days, step_days = 1) {
 
 The causal model has two equations:
 
--   **Root** ← microclimate₁ + microclimate₂
--   **Fauna** ← microclimate₁ + microclimate₂ + root
+- **Root** ← microclimate₁ + microclimate₂
+- **Fauna** ← microclimate₁ + microclimate₂ + root
 
 Both use `lme` with a nested random intercept `orientation / depth` and an AR(1) correlation structure to account for temporal autocorrelation within scanner groups.
 
@@ -321,7 +322,7 @@ run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
 }
 ```
 
-------------------------------------------------------------------------
+---
 
 ## 3. Benchmarking
 
@@ -415,7 +416,7 @@ benchmark_results <- sensibility_grid %>%
   ))
 ```
 
-------------------------------------------------------------------------
+---
 
 ## 4. Results
 
@@ -473,7 +474,7 @@ global_optimization %>%
   row_spec(1, bold = TRUE, background = "#FEC288")   # Highlight best configuration
 ```
 
-------------------------------------------------------------------------
+---
 
 ## 5. Export
 
