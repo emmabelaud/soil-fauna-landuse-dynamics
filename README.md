@@ -14,6 +14,3 @@ Together, these hypotheses test the broader idea that structural complexity enha
 
 ![](images/DAG.png)
 
-### Data
-
-The databases required can be downloaded at the following link : [link](https://filesender.renater.fr/?s=download&token=93c4ed84-6e07-40ab-a4aa-1df2295bbb93)

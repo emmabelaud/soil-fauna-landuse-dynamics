@@ -1,6 +1,6 @@
 {
-  "selected_window": [28],
-  "selected_min_rate": [0.2],
+  "selected_window": [21],
+  "selected_min_rate": [0.3],
   "transform_root": ["hellinger"],
-  "transform_fauna": ["log"]
+  "transform_fauna": ["hellinger"]
 }

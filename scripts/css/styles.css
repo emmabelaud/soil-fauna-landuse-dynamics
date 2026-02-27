@@ -1,16 +1,43 @@
 /* ============================
+   STYLES POUR CORPS DU DOCUMENT
+============================ */
+body {
+  h1 {
+  font-size: 17pt;
+}
+
+h2 {
+  font-size: 15pt;
+}
+
+h3 {
+  font-size: 13pt;
+}
+
+h4 {
+  font-size: 12pt;
+}
+
+  font-size: 12pt;   /* ou 12pt pour lecture confortable */
+  line-height: 1.4;
+}
+
+
+
+/* ============================
    STYLES POUR FIGURES R (plots)
 ============================ */
 
 div.cell img {
-  box-shadow: 3px 3px 5px rgba(0,0,0,0.25);
-  border: 0px solid #555;
-  border-radius: 3px;
+  background-color: #fdfdfd;
+  border: 2px solid #ccc;
+  padding: 1em;
+  border-radius: 5px;
+  box-shadow: 2px 2px 5px 5px rgba(0,0,0,0.1);
   display: block;
   margin: 1em auto;
   background: white;
-  padding: 0.5em;
-  width: 100%;
+  width: 80%;
   max-width: 100%;
 }
 
@@ -34,12 +61,11 @@ div.cell img {
 div.cell-output.cell-output-stdout pre {
   background-color: #fdfdfd;
   border: 2px solid #ccc;
-  #border-left: 2px solid #aaa;
   padding: 1em;
   border-radius: 5px;
   box-shadow: 2px 2px 5px 5px rgba(0,0,0,0.1);
   font-family: "Arial", monospace;
-  font-size: 0.6em;
+  font-size: 0.9em;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-x: auto;

@@ -1,86 +1,164 @@
 ---
-title: "From pixels to patterns: high-throughput in-situ imaging unveils soil fauna dynamics over a year in agroforestry systems"
-format: html
-editor: visual
+title: "SEM database edition"
+format:
+  html:
+    css: css/styles.css
+    embed-resources: true
+    code-tools: true
+execute:
+  warning: false
+  message: false
+  echo: true
 ---
 
-# Data preparation
+## Overview
 
-```{r}
-#Package
-library(tidyverse)
-library(lubridate)
-library(ade4)
-library(jsonlite)
-library(zoo)
-library(data.table)
+### Role in the pipeline
+
+This script is the **first step** of the SEM pipeline. It assembles all input variables from raw sensor and image data into a single analysis-ready database, which feeds directly into:
+
+2.  `sem_diagnostic.qmd` — sensitivity analysis to select the optimal model configuration
+3.  `check_models_performance.qmd` — full rolling-window SEM execution
+4.  `results_visualisation.qmd` — figure production and ecological interpretation
+
+### What this script produces
+
+| Output | File | Description |
+|---------------------|------------------|---------------------------------|
+| Main SEM database | `SEM_database.csv` | One row per scanner × 6-hour time step, with fauna counts, environmental variables, root metrics, and season labels |
+| Taxa list | `fauna_vars.txt` | Names of invertebrate taxa retained for modelling (≥ 8 % of total observations) |
+| Microclimate indices | `microclimate_index.txt` | The two most informative and orthogonal microclimatic summary variables, selected by PCA |
+
+### Data sources and processing steps
+
+Five data streams are integrated:
+
+| Step | Source | Key processing |
+|------------------|------------------|-----------------------------------|
+| **1. Fauna detections** | In-situ minirhizotron images | Filter to 6-hour scan times; recode fine taxa to higher taxonomic levels; fill unobserved taxon–date combinations with 0 (absent) vs. NA (missing image) |
+| **2. Soil probes** | DIAMS sensors | Join by date × depth × position |
+| **3. Air probes** | DIAMS sensors | Join by date × position |
+| **4. Microclimatic indices** | Derived from probes | Compute five rolling-window indices (median, amplitude, rate of change, max, min) per variable; select the two most orthogonal via PCA (cos² ≥ 0.7) |
+| **5. Root density** | Root pixel count images | Compute 9-day and 24-hour growth metrics using backward rolling joins (data.table); convert pixel counts to cm² |
+
+### Key design choices
+
+**Taxonomic lumping** — Several fine-level taxa (e.g. *julida*, *polydesmida*) are promoted to their parent group (e.g. *diplopoda*) when they are too rare to model independently. The mapping is explicit and documented in the code.
+
+**Missing data encoding** — The distinction between 0 (taxon absent, scanner active) and NA (scanner produced no image) is preserved throughout the pipeline and propagates into the SEM database. Downstream scripts filter windows by data completeness rate rather than imputing.
+
+**Microclimate dimensionality reduction** — Rather than using raw temperature and humidity directly, five indices summarise each variable over a rolling window (following Grooss et al., in prep.). PCA then selects the two indices that are both well-represented on the first two axes (cos² ≥ 0.7) and maximally orthogonal, minimising collinearity in the SEM.
+
+> ⚠️ The choice of rolling window duration for index computation and the minimum occurrence threshold for taxa retention require careful consideration before finalising the analysis.
+
+------------------------------------------------------------------------
+
+## 1. Package loading
+
+```{r packages}
+library(tidyverse)   # Data wrangling and visualisation
+library(lubridate)   # Date/time manipulation
+library(ade4)        # Multivariate analysis (PCA)
+library(jsonlite)    # Reading the taxonomic hierarchy JSON
+library(zoo)         # Rolling window calculations
+library(data.table)  # High-performance joins for root data
 ```
 
-## Fauna data
+------------------------------------------------------------------------
 
-```{r}
-df_raw <- read.csv("../data/fauna_data.csv", sep = ",", na.strings = c("", "NA"))
+## 2. Fauna data
 
-# Data cleaning
+### 2.1 Loading and cleaning raw detections
+
+Images are scanned every 6 hours (00:00, 06:00, 12:00, 18:00). Scanner IDs encode positional metadata: - **Characters 4** → position (A, B, C): tree cover / intermediate / cultivated - **Characters 5–6** → depth (20 or 50 cm) - **Character 8** → orientation (O: West, E: East)
+
+```{r load-fauna}
+df_raw <- read.csv("../data/fauna_data.csv",
+                   sep = ",",
+                   na.strings = c("", "NA", "background"))
+
 df <- df_raw %>%
-  filter(!is.na(Predicted.class))%>%
-  filter(!Predicted.class %in% c("under_threshold", "nodule", "SOM", "root_myccorhized", "fungi","unknown", "multi_taxa"))%>%
+  # Remove rows without a valid prediction
+  filter(!is.na(Predicted.class)) %>%
+  # Remove non-faunal, ambiguous, or composite classes
+  filter(!Predicted.class %in% c(
+    "under_threshold", "nodule", "SOM",
+    "root_myccorhized", "fungi", "unknown", "multi_taxa"
+  )) %>%
   mutate(
-    position = substr(scanner, 4, 4),  # A, B, ou C
-    depth = substr(scanner, 5, 6),      # 20 ou 50
-    orientation = substr(scanner, 8, 8),     # O ou E
-    date = ymd_hms(date),
-    date = if_else(minute(date) == 1, date - minutes(1), date),
-    hour = hour(date),
-    minute = minute(date))%>%
-  filter(date> "2024-03-01 00:00:00")%>%
+    # Decode scanner ID into structural covariates
+    position    = substr(scanner, 4, 4),
+    depth       = substr(scanner, 5, 6),
+    orientation = substr(scanner, 8, 8),
+    # Parse and correct timestamps (MM:01 → MM:00 artefact)
+    date   = ymd_hms(date),
+    date   = if_else(minute(date) == 1, date - minutes(1), date),
+    hour   = hour(date),
+    minute = minute(date)
+  ) %>%
+  # Restrict to the main study period
+  filter(date > "2024-03-01 00:00:00") %>%
+  # Keep only the four canonical daily scan times
   filter(minute == 0, hour %in% c(0, 6, 12, 18))
 ```
 
-Create file with an invertebrate taxa list
+------------------------------------------------------------------------
 
-```{r}
-#json hierarchy file
+### 2.2 Build invertebrate taxa list from taxonomic hierarchy
+
+Reads the hierarchical taxonomy JSON, extracts terminal (leaf) taxa under the "fauna" node, applies taxonomic lumping for small or structurally similar groups, and retains only taxa that represent ≥ 8 % of total observations.
+
+```{r taxa-list}
+# Load hierarchical taxonomy
 taxo <- fromJSON("/home/Shared/hierarchy.json")
 
-# keep only non-empty nodes
+# Remove empty nodes
 taxo_filtered <- taxo[sapply(taxo, function(x) length(x) > 0)]
 
-# recursive function to get all descendants
+# Recursive helper: collect all descendants of a given node
 get_descendants <- function(node, tree) {
   children <- tree[[node]]
   if (is.null(children) || length(children) == 0) return(character(0))
-  
-  all_desc <- unlist(lapply(children, get_descendants, tree = tree), use.names = FALSE)
+  all_desc <- unlist(lapply(children, get_descendants, tree = tree),
+                     use.names = FALSE)
   unique(c(children, all_desc))
 }
 
-# get all descendants of "fauna"
+# All taxa nested under "fauna"
 all_fauna <- get_descendants("fauna", taxo_filtered)
 
-# identify terminal taxa
-leaves <- all_fauna[!sapply(all_fauna, function(x) !is.null(taxo_filtered[[x]]) && length(taxo_filtered[[x]]) > 0)]
+# Keep only terminal (leaf) taxa — those with no children
+leaves <- all_fauna[!sapply(all_fauna, function(x) {
+  !is.null(taxo_filtered[[x]]) && length(taxo_filtered[[x]]) > 0
+})]
 
-# remove a few exceptional leaves manually
+# Manually exclude non-useful leaves
 leaves <- leaves[!leaves %in% c("multi_taxa", "unknown", "egg", "pauropoda_symphyla")]
 
-# promote specific subgroups to higher taxonomic levels
-rename_map <- c("bdelloidea" = "trombidiformes",
-                "uropodina" = "mesostigmata",
-                "julida" = "diplopoda",
-                "polydesmida" = "diplopoda",
-                "polyxenida" = "diplopoda",
-                "geophilomorpha" ="chilopoda",
-                "lithobiomorpha" = "chilopoda")
+# Promote fine-level subgroups to their parent taxonomic level
+# (used when subgroups are too rare to model independently)
+rename_map <- c(
+  "bdelloidea"      = "trombidiformes",
+  "uropodina"       = "mesostigmata",
+  "julida"          = "diplopoda",
+  "polydesmida"     = "diplopoda",
+  "polyxenida"      = "diplopoda",
+  "geophilomorpha"  = "chilopoda",
+  "lithobiomorpha"  = "chilopoda"
+)
 
-leaves_updated <- setdiff(leaves, names(rename_map))  # remove promoted children
-leaves_updated <- c(leaves_updated, rename_map)       # add the promoted parent taxa
+# Remove promoted children; add promoted parent taxa instead
+leaves_updated <- setdiff(leaves, names(rename_map))
+leaves_updated <- c(leaves_updated, rename_map)
 
-# keep only selected leaves and classes with >= 20 observations
+# Filter observations: recode promoted taxa, keep leaves only,
+# and retain taxa representing ≥ 8 % of all observations
 taxa_list <- df %>%
-  mutate(Predicted.class = ifelse(Predicted.class %in% names(rename_map),
-                                  rename_map[Predicted.class],
-                                  Predicted.class)) %>%
+  mutate(Predicted.class = ifelse(
+    Predicted.class %in% names(rename_map),
+    rename_map[Predicted.class],
+    Predicted.class
+  )) %>%
   filter(Predicted.class %in% leaves_updated) %>%
   group_by(Predicted.class) %>%
   mutate(n_taxon = n()) %>%
@@ -88,136 +166,195 @@ taxa_list <- df %>%
   mutate(prop_taxon = n_taxon / n()) %>%
   filter(prop_taxon >= 0.08)
 
-# select remaining taxa
+# Export the retained taxa names for downstream scripts
 writeLines(unique(taxa_list$Predicted.class), con = "../output/fauna_vars.txt")
 ```
 
-Function to select the most observed taxa (\> 3000 occurrences)
+------------------------------------------------------------------------
 
-```{r}
+### 2.3 Function: filter taxa by minimum occurrence count
+
+Recodes specific taxa to a higher taxonomic level and, optionally, drops taxa below a given occurrence threshold. Set `filter_taxa = FALSE` to keep all taxa.
+
+```{r filter-taxa-function}
+#' Filter fauna dataframe by minimum occurrence count
+#'
+#' @param df           Fauna dataframe with a `Predicted.class` column.
+#' @param filter_taxa  Logical. If TRUE, drop taxa below `min_occurrences`.
+#' @param min_occurrences Integer. Minimum total detections to retain a taxon.
+#' @return Dataframe with an additional `taxa_levelup` column and,
+#'         if `filter_taxa = TRUE`, rows restricted to frequent taxa.
 filter_taxa_df <- function(df, filter_taxa = TRUE, min_occurrences = 3000) {
-  
-  # Recode some taxa to higher level
-  df <- df %>% 
+
+  # Lump fine-level groups into broader taxa
+  df <- df %>%
     mutate(taxa_levelup = case_when(
       Predicted.class %in% c("pseudosinella", "poduromorpha") ~ "collembola",
-      Predicted.class %in% c("trombidiformes", "mesostigmata") ~ "acari",
+      Predicted.class %in% c("trombidiformes", "mesostigmata")  ~ "acari",
+      Predicted.class %in% c("julida", "polydesmida", "polyxenida") ~ "diplopoda",
+      Predicted.class %in% c("geophilomorpha", "lithobiomorpha")    ~ "chilopoda",
       TRUE ~ Predicted.class
     ))
-  
-  if(filter_taxa) {
-    # Identify taxa with enough occurrences
-    relevant_taxa <- df %>% 
-      group_by(Predicted.class) %>% 
-      summarise(total_occurrences = n(), .groups = "drop") %>% 
-      filter(total_occurrences >= min_occurrences) %>% 
+
+  if (filter_taxa) {
+    relevant_taxa <- df %>%
+      group_by(Predicted.class) %>%
+      summarise(total_occurrences = n(), .groups = "drop") %>%
+      filter(total_occurrences >= min_occurrences) %>%
       select(Predicted.class)
 
     df <- df %>% filter(Predicted.class %in% relevant_taxa$Predicted.class)
-    
     cat(nrow(relevant_taxa), "selected taxa:", relevant_taxa$Predicted.class, "\n")
   }
-  
+
   return(df)
 }
 
-df_filtered <- filter_taxa_df(df, filter_taxa = F)
+# Apply without occurrence filter (keep all taxa)
+df_filtered <- filter_taxa_df(df, filter_taxa = FALSE)
 ```
 
-Completion of occurrence data with 0 for non-observations of invertebrates in images and NA for missing images.
+------------------------------------------------------------------------
 
-```{r}
+### 2.4 Build the complete abundance matrix
+
+Creates a full time × scanner grid, counts detections per taxon per image, and fills unobserved taxon–date–scanner combinations with **0** (taxon absent). Images with no scan at all remain **NA** (data missing).
+
+```{r abundance-matrix}
+# Full sequence of 6-hour time steps across the study period
 seq_time <- seq(min(df$date), max(df$date), by = "6 hours")
-#Creation of complete grid of dates 
+
+# Complete grid: all combinations of time steps and scanners
 complete_grid <- expand_grid(
-  date = seq_time,
-  scanner = unique(df$scanner))
-#Transition from df to abundance matrix
+  date    = seq_time,
+  scanner = unique(df$scanner)
+)
+
+# Aggregate detections to counts per taxon / date / scanner
 df_complete <- df_filtered %>%
-  group_by(Predicted.class, date, scanner, depth, position, orientation)%>%
-  reframe(count= n())%>%
-  mutate(presence = 1) %>% 
-  pivot_wider(names_from = Predicted.class, values_from = count, values_fill = 0)
-#Completion of the matrix
+  group_by(taxa_levelup, date, scanner, depth, position, orientation) %>%
+  reframe(count = n()) %>%
+  mutate(presence = 1) %>%
+  pivot_wider(names_from  = taxa_levelup,
+              values_from = count,
+              values_fill = 0)
+
+# Left-join against the complete grid:
+#   - 0 if the scanner was active but the taxon was absent
+#   - NA if the scanner produced no image at that time step
 df_complete <- complete_grid %>%
-  mutate(position = as.factor(substr(scanner, 4, 4)),  # A, B, ou C
-    depth = as.factor(substr(scanner, 5, 6)),      # 20 ou 50
-    orientation = as.factor(substr(scanner, 8, 8))     # O ou E
-  )%>%
-  left_join(df_complete, by = c("date", "scanner", "depth", "position", "orientation"))%>%   
+  mutate(
+    position    = as.factor(substr(scanner, 4, 4)),
+    depth       = as.factor(substr(scanner, 5, 6)),
+    orientation = as.factor(substr(scanner, 8, 8))
+  ) %>%
+  left_join(df_complete,
+            by = c("date", "scanner", "depth", "position", "orientation")) %>%
   mutate(presence = replace_na(presence, 0))
 
-#Creation of a total abundance column, but only for the most frequently observed taxa
+# Total abundance across all numeric taxa columns (NA propagates if any are NA)
 df_complete <- df_complete %>%
-  mutate(all_taxa = rowSums(select(., where(is.numeric), -presence), na.rm = FALSE)) %>%
+  mutate(all_taxa = rowSums(select(., where(is.numeric), -presence),
+                            na.rm = FALSE)) %>%
   ungroup()
 ```
 
-```{r}
+------------------------------------------------------------------------
+
+### 2.5 Visualise missing data by scanner and month
+
+```{r plot-missing-data}
 df_complete %>%
   mutate(
-    year = as.factor(year(date)),
-    month = as.factor(lubridate::month(date, label = TRUE, abbr = TRUE))) %>%
+    year  = as.factor(year(date)),
+    month = as.factor(lubridate::month(date, label = TRUE, abbr = TRUE))
+  ) %>%
   group_by(scanner, year, month, presence) %>%
   summarise(n = n(), .groups = "drop") %>%
   group_by(scanner, year, month) %>%
-  mutate(prop = n / sum(n))%>%
+  mutate(prop = n / sum(n)) %>%
   ggplot(aes(x = month, y = prop, fill = as.factor(presence))) +
   geom_bar(stat = "identity", position = "stack") +
   facet_grid(scanner ~ year) +
-  scale_fill_manual(values = c("0" = "grey80", "1" = "#F4631E"),
-                    labels = c("0" = "Missing data", "1" = "Current data")) +
-  labs(title = "Proportion of missing data per month and per scanner",x = "month",y = "Proportion",fill = "") +theme_minimal() +
-  theme(strip.text = element_text(face = "bold"),axis.text.x = element_text(angle = 45, hjust = 1),legend.position = "bottom")+theme(plot.title = element_text(size = 16))
+  scale_fill_manual(
+    values = c("0" = "grey80", "1" = "#F4631E"),
+    labels = c("0" = "Missing data", "1" = "Current data")
+  ) +
+  labs(
+    title = "Proportion of missing data per month and per scanner",
+    x = "Month", y = "Proportion", fill = ""
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text   = element_text(face = "bold"),
+    axis.text.x  = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    plot.title   = element_text(size = 16)
+  )
 ```
 
-Selection of the aggregate variable total abundance of invertebrates per image.
+------------------------------------------------------------------------
 
-### Land-use
+### 2.6 Define land-use grouping and prepare SEM base table
 
-Two types of land use are compared: under tree cover and herbaceous species, and under cultivated cover. In order to integrate this categorical variable into the structural equation model, it is recoded as a binary variable:
+Two land-use categories are compared:
 
--   0 corresponds to surveys carried out under tree cover and herbaceous species, generally associated with position "A"
+| Code | Land use                | Scanner position |
+|------|-------------------------|------------------|
+| 0    | Tree cover + herbaceous | A                |
+| 1    | Cultivated cover        | C                |
 
--   1 corresponds to surveys carried out under cultivated cover, generally associated with position "C"
+Position **B** (intermediate strip) is excluded from the analysis.
 
-The intermediate position "B" is removed.
-
-```{r}
+```{r sem-base}
 data_sem <- df_complete %>%
   filter(position != "B") %>%
-  mutate(depth = as.factor(depth), 
-         scanner=as.factor(scanner),
-         year = as.factor(year(date)),
-         month = floor_date(date, unit = "month"),
-         week = floor_date(date, unit = "week")) 
+  mutate(
+    depth   = as.factor(depth),
+    scanner = as.factor(scanner),
+    year    = as.factor(year(date)),
+    month   = floor_date(date, unit = "month"),
+    week    = floor_date(date, unit = "week")
+  )
 ```
 
-### Missing data
+------------------------------------------------------------------------
 
-We select the dates (time + day of capture) for which we have images from the eight scanners studied.
+### 2.7 Function: filter dates with insufficient scanner coverage
 
-```{r}
-filter_data <- function(data, min_images = 6, apply_filter = F) {
-  
+Dates where fewer than `min_images` scanners returned valid images are flagged as low-quality. Set `apply_filter = TRUE` to drop those dates before plotting.
+
+> ⚠️ Choice of `min_images` and temporal aggregation scale requires careful consideration.
+
+```{r filter-dates-function}
+#' Flag (and optionally remove) dates with low scanner coverage
+#'
+#' @param data       SEM dataframe.
+#' @param min_images Integer. Minimum number of active scanners required.
+#' @param apply_filter Logical. If TRUE, remove flagged dates before plotting.
+#' @return The input dataframe with added columns `images_count` and
+#'         `dates_to_keep`, plus a coverage barplot.
+filter_data <- function(data, min_images = 6, apply_filter = FALSE) {
+
   data <- data %>%
     group_by(date) %>%
     mutate(
-      images_count = sum(presence),
+      images_count  = sum(presence),
       dates_to_keep = as.factor(as.integer(images_count > min_images)),
-      presence = as.factor(presence)
+      presence      = as.factor(presence)
     ) %>%
     ungroup() %>%
     mutate(
-      year = as.factor(year(date)),
+      year  = as.factor(year(date)),
       month = as.factor(lubridate::month(date, label = TRUE, abbr = TRUE))
     )
-  
+
   data_for_plot <- data
-  if(apply_filter) {
+  if (apply_filter) {
     data_for_plot <- data_for_plot %>% filter(dates_to_keep == 1)
   }
-  
+
+  # Plot coverage retention
   data_for_plot %>%
     group_by(scanner, year, month, dates_to_keep) %>%
     summarise(n = n(), .groups = "drop") %>%
@@ -226,81 +363,108 @@ filter_data <- function(data, min_images = 6, apply_filter = F) {
     ggplot(aes(x = month, y = prop, fill = dates_to_keep)) +
     geom_bar(stat = "identity", position = "stack") +
     facet_grid(~ year) +
-    scale_fill_manual(values = c("0" = "grey80", "1" = "#00A86B"),
-                      labels = c("0" = "Missing data", "1" = "Current data")) +
-    labs(title = "Proportion of data retained per month and per scanner",
-         x = "Month", y = "Proportion", fill = "") +
+    scale_fill_manual(
+      values = c("0" = "grey80", "1" = "#00A86B"),
+      labels = c("0" = "Missing data", "1" = "Current data")
+    ) +
+    labs(
+      title = "Proportion of data retained per month and per scanner",
+      x = "Month", y = "Proportion", fill = ""
+    ) +
     theme_minimal() +
     theme(
-      strip.text = element_text(face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1),
+      strip.text      = element_text(face = "bold"),
+      axis.text.x     = element_text(angle = 45, hjust = 1),
       legend.position = "bottom",
-      plot.title = element_text(size = 16)
+      plot.title      = element_text(size = 16)
     )
-  
-    return(data)
+
+  return(data)
 }
 
+# Flag dates but keep all of them (apply_filter = FALSE)
 data_sem <- filter_data(data_sem, min_images = 6, apply_filter = FALSE)
 ```
 
-## Environmental data
+------------------------------------------------------------------------
 
-```{r}
-soil_probe_data <- read.csv("../data/Diams_AF1W_soil.csv") %>% 
-  mutate(date = as.POSIXct(date, format = "%Y-%m-%d %H:%M:%S"), 
-         depth=as.factor(depth), 
-         position=as.factor(position)) %>% drop_na()
+## 3. Environmental data
 
-air_probe_data <- read.csv("../data/Diams_AF1W_air.csv")  %>% 
-  mutate(date = as.POSIXct(date, format = "%Y-%m-%d %H:%M:%S"), 
-         position=as.factor(position)) %>% drop_na()
+```{r load-env-data}
+# Soil temperature and humidity (position × depth × date)
+soil_probe_data <- read.csv("../data/Diams_AF1W_soil.csv") %>%
+  mutate(
+    date     = as.POSIXct(date, format = "%Y-%m-%d %H:%M:%S"),
+    depth    = as.factor(depth),
+    position = as.factor(position)
+  ) %>%
+  drop_na()
+
+# Air temperature and humidity (position × date)
+air_probe_data <- read.csv("../data/Diams_AF1W_air.csv") %>%
+  mutate(
+    date     = as.POSIXct(date, format = "%Y-%m-%d %H:%M:%S"),
+    position = as.factor(position)
+  ) %>%
+  drop_na()
+
+# Merge environmental variables into the main dataframe
+data_sem <- data_sem %>%
+  left_join(soil_probe_data, by = c("date", "depth", "position")) %>%
+  left_join(air_probe_data,  by = c("date", "position"))
 ```
 
-Add soil and athmospheric humidity and temperature data to the main dataframe
+------------------------------------------------------------------------
 
-```{r}
-data_sem  <- data_sem %>% 
-  left_join(soil_probe_data ,by = c("date" , "depth", "position")) %>% 
-  left_join(air_probe_data, by = c("date" ,  "position")) 
+## 4. Microclimatic indices
+
+### 4.1 Index parameters
+
+> ⚠️ The choice of temporal aggregation scale and which indices to retain requires careful consideration.
+
+```{r index-params}
+time_step_days    <- 1       # Temporal resolution (days)
+window_size       <- time_step_days * 4   # Rolling window width (number of 6-h steps)
+missing_data_rate <- 0.3     # Max fraction of NAs tolerated within a window
 ```
 
-### Indices calculation and selection
+### 4.2 Compute rolling microclimatic indices
 
-Definition of the time integration step parameters and maximum allowable missing data rate for calculating the microclimate indices \> **Choice of the daily scale for the moment. But should we use indices? And if so, at what intervals? This choice requires careful consideration ⚠**
+Following Grooss et al. (in prep.), five indices summarise each environmental variable over the rolling window:
 
-```{r}
-time_step_days <- 1
-window_size <- time_step_days * 4
-missing_data_rate <- 0.3
-```
+| Index | Description |
+|--------------------------|----------------------------------------------|
+| `median` | Central tendency, robust to extremes |
+| `amplitude` | 5th–95th percentile range (within-window variability) |
+| `change_ratio` | Median of successive differences (instantaneous variability) |
+| `max` | 97.5th percentile (warm/wet extreme) |
+| `min` | 2.5th percentile (cold/dry extreme) |
 
-Calculation of microclimatic indices according to Grooss et al., in prep: median (represents the average without sensitivity to extremes), amplitude (variability over the period), rate of change (variability in the moment), 97.5% maxima (hot or wet extremes) and 2.5% minima (cold or dry extremes). Performing dimensionality reduction and selecting the two variables that account for the most variability, i.e. the most orthogonal ones.
-
-```{r}
-# function to compute indices
+```{r compute-indices}
 vars_to_index <- c("temp_soil", "hum_soil")
-index_names <- c("median", "amplitude", "change_ratio", "max", "min")
+index_names   <- c("median", "amplitude", "change_ratio", "max", "min")
 
+#' Compute five summary indices for a numeric vector
+#'
+#' Returns all-NA if more than `missing_data_rate` of values are missing.
 index_compute_function <- function(vec) {
   if (mean(is.na(vec)) > missing_data_rate) {
-    return(c(
-      median = NA, amplitude = NA, change_ratio = NA, max = NA, min = NA
-    ))
+    return(c(median = NA, amplitude = NA, change_ratio = NA, max = NA, min = NA))
   }
 
-  qs <- quantile(vec, c(0.025, 0.05, 0.95, 0.975), na.rm = TRUE)
+  qs    <- quantile(vec, c(0.025, 0.05, 0.95, 0.975), na.rm = TRUE)
   diffs <- diff(round(vec, 6))
 
   c(
     median       = median(vec, na.rm = TRUE),
-    amplitude    = qs[3] - qs[2],
+    amplitude    = qs[3] - qs[2],           # IQR-like spread
     change_ratio = median(diffs, na.rm = TRUE),
     max          = unname(qs[4]),
     min          = unname(qs[1])
   )
 }
 
+# Apply rolling window within each position × orientation × depth group
 data_sem_indices <- data_sem %>%
   arrange(position, orientation, depth, date) %>%
   group_by(position, orientation, depth) %>%
@@ -313,43 +477,50 @@ data_sem_indices <- data_sem %>%
         colnames(m) <- index_names
         as_tibble(m)
       },
-      .names = "{.col}",
+      .names  = "{.col}",
       .unpack = TRUE
     )
   ) %>%
   ungroup()
 
 head(data_sem_indices)
+```
 
-# index selection
-# based on a dimensionality reduction procedure
+### 4.3 Select the two most informative, orthogonal indices via PCA
+
+A PCA is performed on all computed indices. The two well-represented variables (cos² ≥ 0.7) with the smallest mutual cosine (i.e. most orthogonal in PCA space) are retained for the SEM.
+
+```{r select-indices}
+# Prepare complete-case matrix of all indices
 microclim_data <- data_sem_indices %>%
   select(starts_with("temp_soil_"), starts_with("hum_soil_")) %>%
   drop_na() %>%
-  select(where(~ sd(.x, na.rm = TRUE) > 0))
+  select(where(~ sd(.x, na.rm = TRUE) > 0))  # Remove zero-variance columns
 
+# PCA (2 axes)
 acp_microclimate <- dudi.pca(microclim_data, scannf = FALSE, nf = 2)
+# s.corcircle(acp_microclimate$co)  # Uncomment to visualise variable loadings
 
-#s.corcircle(acp_microclimate$co)
 var_coord <- acp_microclimate$co[, 1:2]
 var_names <- rownames(var_coord)
 
-# Calculate cos² (quality of representation) for each variable
-var_cos2 <- rowSums(var_coord^2)
-# filter variables with good representation (e.g., cos² > 0.7)
+# Quality of representation: cos² per variable (sum of squared loadings)
+var_cos2  <- rowSums(var_coord^2)
 good_vars <- var_names[var_cos2 >= 0.7]
 
-# Function to compute cosine of angle between two vectors
+# Cosine of the angle between two loading vectors (measure of collinearity)
 cos_angle <- function(v1, v2) sum(v1 * v2) / (sqrt(sum(v1^2)) * sqrt(sum(v2^2)))
 
-# Find the pair of well-represented variables with minimal absolute cosine (most orthogonal)
-pair_matrix <- combn(good_vars, 2)
-i_min <- which.min(apply(pair_matrix, 2, function(p) cos_angle(var_coord[p[1], ], var_coord[p[2], ])))
+# Among well-represented variables, find the most orthogonal pair
+pair_matrix     <- combn(good_vars, 2)
+i_min           <- which.min(apply(pair_matrix, 2, function(p) {
+  cos_angle(var_coord[p[1], ], var_coord[p[2], ])
+}))
 microclimate_index <- pair_matrix[, i_min]
 
-cat("Microclimate index selected :", microclimate_index[1], "and", microclimate_index[2])
+cat("Microclimate indices selected:", microclimate_index[1], "and", microclimate_index[2])
 
-# Add selected indices to the database
+# Add the two selected indices back to the main dataframe
 data_sem <- data_sem %>%
   left_join(
     data_sem_indices %>%
@@ -357,40 +528,50 @@ data_sem <- data_sem %>%
     by = c("date", "position", "orientation", "depth")
   )
 
+# Export selected index names for downstream scripts
 writeLines(microclimate_index, con = "../output/microclimate_index.txt")
 ```
 
-## Roots data
+------------------------------------------------------------------------
 
-This script uses **`data.table`** to calculate root growth by performing high-speed "rolling joins." Instead of requiring exact timestamp matches, it uses `roll = +Inf` to search backwards for the nearest available image within a specific biological window (2 days for a 9-day lag; 12 hours for a 1-day lag). By calculating the difference in pixel counts between the current and recovered historical images, it derives root expansion metrics while automatically handling missing data points and sensor noise.
+## 5. Root density data
 
-```{r}
-# SETUP & CONSTANTS ---
-dpi <- 1200 
-# Pre-calculate the pixel-to-cm2 conversion factor
-pixels_per_cm_sq <- (dpi / 2.54)^2 
+Root growth is computed by comparing pixel counts between two time points using high-performance rolling joins (`data.table`). Two temporal lags are calculated:
 
-# Using fread for high-performance loading of large CSVs
-root_density_raw <- fread("../data/root_pixels_count.csv") 
+-   **9-day lag** (tolerance: ± 2 days) — captures medium-term root expansion
+-   **1-day lag** (tolerance: ± 12 hours) — captures short-term root growth
 
-# DATA CLEANING & TIMESTAMP STANDARDIZATION 
+### 5.1 Constants
+
+```{r root-constants}
+dpi              <- 1200
+pixels_per_cm_sq <- (dpi / 2.54)^2   # Conversion factor: pixels → cm²
+```
+
+### 5.2 Load and parse root pixel counts
+
+```{r load-roots}
+# fread for high-performance CSV loading of large files
+root_density_raw <- fread("../data/root_pixels_count.csv")
+
+# Parse the structured filename to extract date and scanner metadata
+# Filename format: <bloc>_<pos>_<orient>_<yr>-<mon>-<day>H<hr>M<min>.<ext>
 root_density <- root_density_raw[, `:=`(
   image_name = sub("\\.png$", "", file)
-)][, c("bloc", "pos", "orient", "yr", "mon", "day", "hr", "min", "ext") := 
+)][, c("bloc", "pos", "orient", "yr", "mon", "day", "hr", "min", "ext") :=
      tstrsplit(file, "_|\\.|H|M.| |-", fill = NA)
 ][, date := ymd_hm(paste(yr, mon, day, hr, min))]
 
-# Convert to POSIXct and handle minute-level precision issues
-root_density[, date := as.POSIXct(date)]
+root_density[, date   := as.POSIXct(date)]
 root_density[, minute := minute(date)]
 
-# Standardize: If record is at MM:01, shift back to MM:00 (aligning scanning intervals)
+# Correct MM:01 artefact (same scanner offset correction as for fauna data)
 root_density[minute == 1, date := date - 60]
 
-# Keep only standardized 6-hour interval observations
+# Keep only 6-hour canonical scan times
 root_density <- root_density[minute(date) == 0 & hour(date) %in% c(0, 6, 12, 18)]
 
-# Create structural factors for grouping
+# Derive structural factors from scanner position string
 root_density[, `:=`(
   scanner     = as.factor(paste(pos, orient, sep = "_")),
   depth       = as.factor(substr(pos, 2, 3)),
@@ -398,108 +579,140 @@ root_density[, `:=`(
   orientation = as.factor(orient)
 )]
 
-# Set Keys: Crucial for performance. This sorts data and allows binary search joins.
+# Sort and index for binary-search joins
 setkey(root_density, depth, position, orientation, date)
+```
 
-# TEMPORAL TARGETING
-# Define the theoretical "previous dates" we want to find values for
+### 5.3 Rolling joins to retrieve lagged pixel counts
+
+```{r root-lag-joins}
+# Define target dates for each lag window
 root_density[, `:=`(
   date_target_9d = date - days(9),
   date_target_1d = date - days(1)
 )]
 
-#  ROLLING JOIN: 9-DAY LAG (2-day tolerance)
-# Goal: Find the closest image recorded roughly 9 days ago.
-ref_9d <- root_density[, .(depth, position, orientation, 
-                           date_found_9d = date, 
-                           pixels_9d = root_pixels_count)]
+# --- 9-day lag (tolerance: ≤ 2 days = 172 800 s) ---
+ref_9d <- root_density[, .(depth, position, orientation,
+                           date_found_9d = date,
+                           pixels_9d    = root_pixels_count)]
 setkey(ref_9d, depth, position, orientation, date_found_9d)
 
-# roll = +Inf: Look for the nearest date <= target date (only looks backwards)
-root_density <- ref_9d[root_density, 
-                       on = .(depth, position, orientation, date_found_9d = date_target_9d), 
+# roll = +Inf: match the nearest earlier date (backward-looking)
+root_density <- ref_9d[root_density,
+                       on  = .(depth, position, orientation,
+                               date_found_9d = date_target_9d),
                        roll = +Inf]
 
-# Validate proximity: If the found image is > 2 days away from target, discard it (NA)
-root_density[, diff_9d := abs(as.numeric(difftime(date_found_9d, date - days(9), units = "secs")))]
+root_density[, diff_9d := abs(as.numeric(
+  difftime(date_found_9d, date - days(9), units = "secs")))]
 root_density[, root_pixels_count_lag := ifelse(diff_9d <= 172800, pixels_9d, NA)]
-
-# Clean technical columns
 root_density[, c("date_found_9d", "pixels_9d", "diff_9d") := NULL]
 
-# ROLLING JOIN: 1-DAY LAG (12-hour tolerance)
-ref_1d <- root_density[, .(depth, position, orientation, 
-                           date_found_1d = date, 
-                           pixels_1d = root_pixels_count)]
+# --- 1-day lag (tolerance: ≤ 12 hours = 43 200 s) ---
+ref_1d <- root_density[, .(depth, position, orientation,
+                           date_found_1d = date,
+                           pixels_1d    = root_pixels_count)]
 setkey(ref_1d, depth, position, orientation, date_found_1d)
 
-root_density <- ref_1d[root_density, 
-                       on = .(depth, position, orientation, date_found_1d = date_target_1d), 
+root_density <- ref_1d[root_density,
+                       on  = .(depth, position, orientation,
+                               date_found_1d = date_target_1d),
                        roll = +Inf]
 
-# Validate proximity: Max 12-hour gap allowed
-root_density[, diff_1d := abs(as.numeric(difftime(date_found_1d, date - days(1), units = "secs")))]
+root_density[, diff_1d := abs(as.numeric(
+  difftime(date_found_1d, date - days(1), units = "secs")))]
 root_density[, root_pixels_count_lag_1d := ifelse(diff_1d <= 43200, pixels_1d, NA)]
-
 root_density[, c("date_found_1d", "pixels_1d", "diff_1d") := NULL]
+```
 
-# METRIC CALCULATIONS (Pixels & Area) 
+### 5.4 Compute root area metrics
+
+```{r root-metrics}
+# Pixel differences between current and lagged images
 root_density[, `:=`(
   root_growth_pixel_count    = root_pixels_count - root_pixels_count_lag,
   root_growth_pixel_count_1d = root_pixels_count - root_pixels_count_lag_1d
 )]
 
-# Convert pixel counts to Area (cm2)
+# Convert pixel counts to area (cm²)
 root_density[, `:=`(
   root_cm2_count            = root_pixels_count / pixels_per_cm_sq,
-  root_growth_cm2_count     = root_growth_pixel_count / pixels_per_cm_sq,
+  root_growth_cm2_count     = root_growth_pixel_count    / pixels_per_cm_sq,
   root_mature_cm2_count     = (root_pixels_count - root_growth_pixel_count) / pixels_per_cm_sq,
   root_growth_cm2_count_24h = root_growth_pixel_count_1d / pixels_per_cm_sq
 )]
 
-# Treat negative growth as zero to focus strictly on root growth
+# Treat negative 24 h growth as zero (sensor noise / root turnover not modelled)
 root_density[root_growth_cm2_count_24h < 0, root_growth_cm2_count_24h := 0]
-
-# FINAL MERGE
-# Join the calculated root metrics back into the Structural Equation Modeling (SEM) dataset
-setDT(data_sem)
-data_sem <- merge(data_sem, 
-                  root_density[, .(date, position, depth, orientation, 
-                                   root_cm2_count, root_growth_cm2_count, 
-                                   root_mature_cm2_count, root_growth_cm2_count_24h)], 
-                  by = c("date", "position", "depth", "orientation"), 
-                  all.x = TRUE)
 ```
 
-## Season variable
+### 5.5 Merge root metrics into the SEM dataframe
 
-```{r}
-years <- 2023:2025
+```{r merge-roots}
+setDT(data_sem)
+
+data_sem <- merge(
+  data_sem,
+  root_density[, .(date, position, depth, orientation,
+                   root_cm2_count, root_growth_cm2_count,
+                   root_mature_cm2_count, root_growth_cm2_count_24h)],
+  by  = c("date", "position", "depth", "orientation"),
+  all.x = TRUE
+)
+```
+
+------------------------------------------------------------------------
+
+## 6. Season variable
+
+Seasons are defined by astronomical boundaries (equinoxes and solstices), covering 2023–2025.
+
+```{r seasons}
+years  <- 2023:2025
 season <- c("spring", "summer", "autumn", "winter")
+
+# Build a lookup table of day → season
 seasons <- bind_rows(lapply(years, function(an) {
   tibble(
-    season = season,
+    season     = season,
     date_debut = as.Date(paste0(an, c("-03-21", "-06-21", "-09-21", "-12-21"))),
-    date_fin = as.Date(paste0(c(an, an, an, an + 1), c("-06-20", "-09-20", "-12-20", "-03-20"))))
+    date_fin   = as.Date(paste0(
+      c(an, an, an, an + 1),
+      c("-06-20", "-09-20", "-12-20", "-03-20")
+    ))
+  )
 }))
 
+# Expand to one row per calendar day, then left-join to the main dataframe
 data_sem <- data_sem %>%
-  mutate(day = as.Date(date))%>%
-  left_join(seasons %>% rowwise() %>% 
-  mutate(day = list(seq(date_debut, date_fin, by = "day"))) %>% 
-  unnest(cols = c(day)) %>% 
-  dplyr::select(day, season), by = "day")
+  mutate(day = as.Date(date)) %>%
+  left_join(
+    seasons %>%
+      rowwise() %>%
+      mutate(day = list(seq(date_debut, date_fin, by = "day"))) %>%
+      unnest(cols = c(day)) %>%
+      dplyr::select(day, season),
+    by = "day"
+  )
 ```
 
-## Data standardisation
+------------------------------------------------------------------------
 
-```{r}
-#data_sem <- data_sem %>% mutate(across(where(is.numeric), ~ as.numeric(scale(.))))
+## 7. (Optional) Data standardisation
+
+Uncomment the line below to z-score standardise all numeric variables before export.
+
+```{r standardise}
+# data_sem <- data_sem %>%
+#   mutate(across(where(is.numeric), ~ as.numeric(scale(.))))
 ```
 
-## CSV generation
+------------------------------------------------------------------------
 
-```{r}
+## 8. Export
+
+```{r export}
 data_sem$date <- format(data_sem$date, "%Y-%m-%d %H:%M:%S")
 write.csv(data_sem, "../output/SEM_database.csv", row.names = FALSE, quote = TRUE)
 ```
