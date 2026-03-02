@@ -57,13 +57,13 @@ Builds the integrated SEM dataset from five raw data streams:
 
 ### Script 2 — `2_SEM_diagnostic.qmd`
 
-Runs a **sensitivity analysis** across a full factorial grid (175 combinations) of three structural parameters before committing to the final model configuration:
+Runs a **sensitivity analysis** across a full factorial grid (140 combinations) of three structural parameters before committing to the final model configuration:
 
-| Parameter                 | Values tested                                |
-|---------------------------|----------------------------------------------|
-| Window duration           | 5, 7, 10, 14, 21, 28, 30 days                |
-| Minimum data completeness | 10 %, 20 %, 30 %, 40 %, 50 %                 |
-| Data transformation       | none, Freeman-Tukey, log, Box-Cox, Hellinger |
+| Parameter                 | Values tested                       |
+|---------------------------|-------------------------------------|
+| Window duration           | 5, 7, 10, 14, 21, 28, 30 days       |
+| Minimum data completeness | 10 %, 20 %, 30 %, 40 %, 50 %        |
+| Data transformation       | none, Freeman-Tukey, log, Hellinger |
 
 For each combination, the pipeline runs on 50 randomly sampled windows and evaluates four diagnostics: heteroscedasticity (Spearman ρ \< 0.4), skewness (\|skew\| \< 1.5), collinearity (VIF \< 5), and marginal R². The optimal configuration is selected by maximising joint model validity and explanatory power across both response variables (root, fauna).
 
@@ -75,7 +75,9 @@ For each combination, the pipeline runs on 50 randomly sampled windows and evalu
 
 Applies the validated parameters from script 2 to run the **full rolling-window piecewise SEM** across all taxa and positions. The causal structure is:
 
-$$\text{Root} \leftarrow \beta_1 \cdot \text{microclimate}_1 + \beta_2 \cdot \text{microclimate}_2$$ $$\text{Fauna} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{Root}$$
+The causal model has four structural equations organised in three tiers, with `land_use` (0 = unmanaged, 1 = managed) as the exogenous driver:
+
+$$\text{Tier 1} \quad \text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$$ $$\phantom{\text{Tier 1}} \quad \text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$$ $$\text{Tier 2} \quad \text{Root} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{land\_use}$$ $$\text{Tier 3} \quad \text{Fauna} \leftarrow \beta_6 \cdot \text{microclimate}_1 + \beta_7 \cdot \text{microclimate}_2 + \beta_8 \cdot \text{Root} + \beta_9 \cdot \text{land\_use}$$
 
 Each equation uses a nested random intercept (`orientation / depth`) and an AR(1) correlation structure. A **null distribution** is generated via 30 permutation iterations to confirm that observed path coefficients are non-random.
 
