@@ -1,4 +1,6 @@
+acari
 gastropoda
+collembola
 diplopoda
 symphyla
 enchytraeidae

@@ -1,11 +1,14 @@
 ---
 title: "SEM database edition"
+author: "Emma Belaud"
 format:
   html:
-    css: css/styles.css
+    css: css/styles.css  
     embed-resources: true
     code-tools: true
-execute:
+    toc: true
+    toc-depth: 4
+execute: 
   warning: false
   message: false
   echo: true
@@ -131,7 +134,8 @@ leaves <- all_fauna[!sapply(all_fauna, function(x) {
 })]
 
 # Manually exclude non-useful leaves
-leaves <- leaves[!leaves %in% c("multi_taxa", "unknown", "egg", "pauropoda_symphyla")]
+all_fauna_nodes <- get_descendants("fauna", taxo_filtered)
+to_exclude <- c("multi_taxa", "unknown", "egg", "pauropoda_symphyla")
 
 # Promote fine-level subgroups to their parent taxonomic level
 # (used when subgroups are too rare to model independently)
@@ -146,8 +150,8 @@ rename_map <- c(
 )
 
 # Remove promoted children; add promoted parent taxa instead
-leaves_updated <- setdiff(leaves, names(rename_map))
-leaves_updated <- c(leaves_updated, rename_map)
+#leaves_updated <- setdiff(leaves, names(rename_map))
+#leaves_updated <- c(leaves_updated, rename_map)
 
 # Filter observations: recode promoted taxa, keep leaves only,
 # and retain taxa representing ≥ 8 % of all observations
@@ -157,12 +161,13 @@ taxa_list <- df %>%
     rename_map[Predicted.class],
     Predicted.class
   )) %>%
-  filter(Predicted.class %in% leaves_updated) %>%
+  filter(Predicted.class %in% all_fauna_nodes,
+         !Predicted.class %in% to_exclude) %>%
   group_by(Predicted.class) %>%
   mutate(n_taxon = n()) %>%
   ungroup() %>%
   mutate(prop_taxon = n_taxon / n()) %>%
-  filter(prop_taxon >= 0.08)
+  filter(prop_taxon >= 0.05)
 
 # Export the retained taxa names for downstream scripts
 writeLines(unique(taxa_list$Predicted.class), con = "../output/fauna_vars.txt")
@@ -698,7 +703,7 @@ data_sem <- data_sem %>%
 Uncomment the line below to z-score standardise all numeric variables before export.
 
 ```{r standardise}
-# data_sem <- data_sem %>%
+#data_sem <- data_sem %>%
 #   mutate(across(where(is.numeric), ~ as.numeric(scale(.))))
 ```
 
