@@ -1,6 +1,7 @@
 {
-  "selected_window": [30],
-  "selected_min_rate": [0.2],
+  "selected_window": [10],
+  "selected_min_rate": [0.1],
   "transform_root": ["hellinger"],
-  "transform_fauna": ["box_cox"]
+  "transform_fauna": ["log"],
+  "transform_microclimate": ["none"]
 }
