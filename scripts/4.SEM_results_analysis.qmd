@@ -21,7 +21,7 @@ execute:
 This script is the **final step** of the SEM pipeline. It loads the path coefficient database produced by `check_models_performance.qmd` and produces three analytical sections:
 
 | Section | Question | Output |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | **Environmental forcing** | How strongly and consistently do microclimate and root dynamics drive fauna across management types? | Distribution plots of standardised path coefficients and R² |
 | **Deterministic vs. stochastic processes** | Are observed causal effects statistically distinguishable from random noise? | Z-score distributions relative to the permutation null |
 | **Temporal stability** | Do the strengths of causal paths fluctuate over time, or remain steady? | Coefficient of variation (CV) per path and position |

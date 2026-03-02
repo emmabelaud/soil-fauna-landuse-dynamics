@@ -3581,7 +3581,7 @@ window.Quarto = {
 <h3 class="anchored" data-anchor-id="null-distribution-via-permutation">5.2 Null distribution via permutation</h3>
 <p>The null distribution is built by independently permuting all causal variables (fauna, root, microclimate indices) across <code>n_perm = 30</code> iterations. This breaks every directed causal link while preserving the marginal distribution of each variable. Observed path coefficients that fall far from the null mean (relative to the null SD) cannot be attributed to chance.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>n_perm <span class="ot">&lt;-</span> <span class="dv">30</span></span>
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>n_perm <span class="ot">&lt;-</span> <span class="dv">20</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="fu">sprintf</span>(<span class="st">&quot;&gt;&gt;&gt; Generating null distribution (n = %d permutations)...&quot;</span>, n_perm))</span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>sem_results_null <span class="ot">&lt;-</span> <span class="fu">map_dfr</span>(<span class="dv">1</span><span class="sc">:</span>n_perm, <span class="cf">function</span>(i) {</span>
@@ -3676,51 +3676,11 @@ window.Quarto = {
 
 --- Processing taxon: all_taxa ---
   Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
-  Position C: 591 / 591 windows passed filter.
-
---- Processing taxon: all_taxa ---
-  Position A: 591 / 591 windows passed filter.
   Position C: 591 / 591 windows passed filter.</code></pre>
 </div>
 <div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Summarise null distribution: mean and SD of each path under H₀</span></span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>sem_null_summary <span class="ot">&lt;-</span> sem_results_null <span class="sc">%&gt;%</span></span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(response, predictor) <span class="sc">%&gt;%</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(position, date_start, response, predictor) <span class="sc">%&gt;%</span></span>
 <span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(</span>
 <span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">null_mean_estimate =</span> <span class="fu">mean</span>(estimate, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
 <span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">null_sd_estimate   =</span> <span class="fu">sd</span>(estimate,   <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
@@ -3736,7 +3696,7 @@ window.Quarto = {
 <div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Merge observed results with null summary ───────────────────────────────────</span></span>
 <span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>sem_results <span class="ot">&lt;-</span> sem_results_raw <span class="sc">%&gt;%</span></span>
 <span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">type =</span> <span class="st">&quot;observed&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(sem_null_summary, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">&quot;response&quot;</span>, <span class="st">&quot;predictor&quot;</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(sem_null_summary, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">&quot;position&quot;</span>,<span class="st">&quot;date_start&quot;</span>,<span class="st">&quot;response&quot;</span>, <span class="st">&quot;predictor&quot;</span>)) <span class="sc">%&gt;%</span></span>
 <span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Keep only directed causal paths (→); remove correlated error terms (~~)</span></span>
 <span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">str_detect</span>(predictor, <span class="st">&quot;~~&quot;</span>)) <span class="sc">%&gt;%</span></span>
 <span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">path_id =</span> <span class="fu">paste</span>(predictor, <span class="st">&quot;-&gt;&quot;</span>, response))</span>
@@ -4269,7 +4229,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a><span class="fu">### What this script produces</span></span>
 <span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb14-26"><a href="#cb14-26" aria-hidden="true" tabindex="-1"></a>| Output | File | Description |</span>
-<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a>|----|----|----|</span>
+<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a>|------------------------|------------------------|------------------------|</span>
 <span id="cb14-28"><a href="#cb14-28" aria-hidden="true" tabindex="-1"></a>| Observed path coefficients | <span class="in">`SEM_results_database.csv`</span> | Standardised estimates, p-values, R², season labels for all taxon × position × window combinations |</span>
 <span id="cb14-29"><a href="#cb14-29" aria-hidden="true" tabindex="-1"></a>| Null distribution summary | *(in memory)* | Mean and SD of path coefficients under random permutation of all causal variables |</span>
 <span id="cb14-30"><a href="#cb14-30" aria-hidden="true" tabindex="-1"></a></span>
@@ -4562,7 +4522,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb14-317"><a href="#cb14-317" aria-hidden="true" tabindex="-1"></a>The null distribution is built by independently permuting all causal variables (fauna, root, microclimate indices) across <span class="in">`n_perm = 30`</span> iterations. This breaks every directed causal link while preserving the marginal distribution of each variable. Observed path coefficients that fall far from the null mean (relative to the null SD) cannot be attributed to chance.</span>
 <span id="cb14-318"><a href="#cb14-318" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb14-319"><a href="#cb14-319" aria-hidden="true" tabindex="-1"></a><span class="in">```{r null-distribution}</span></span>
-<span id="cb14-320"><a href="#cb14-320" aria-hidden="true" tabindex="-1"></a><span class="in">n_perm &lt;- 30</span></span>
+<span id="cb14-320"><a href="#cb14-320" aria-hidden="true" tabindex="-1"></a><span class="in">n_perm &lt;- 20</span></span>
 <span id="cb14-321"><a href="#cb14-321" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(&quot;&gt;&gt;&gt; Generating null distribution (n = %d permutations)...&quot;, n_perm))</span></span>
 <span id="cb14-322"><a href="#cb14-322" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb14-323"><a href="#cb14-323" aria-hidden="true" tabindex="-1"></a><span class="in">sem_results_null &lt;- map_dfr(1:n_perm, function(i) {</span></span>
@@ -4580,7 +4540,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb14-335"><a href="#cb14-335" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb14-336"><a href="#cb14-336" aria-hidden="true" tabindex="-1"></a><span class="in"># Summarise null distribution: mean and SD of each path under H₀</span></span>
 <span id="cb14-337"><a href="#cb14-337" aria-hidden="true" tabindex="-1"></a><span class="in">sem_null_summary &lt;- sem_results_null %&gt;%</span></span>
-<span id="cb14-338"><a href="#cb14-338" aria-hidden="true" tabindex="-1"></a><span class="in">  group_by(response, predictor) %&gt;%</span></span>
+<span id="cb14-338"><a href="#cb14-338" aria-hidden="true" tabindex="-1"></a><span class="in">  group_by(position, date_start, response, predictor) %&gt;%</span></span>
 <span id="cb14-339"><a href="#cb14-339" aria-hidden="true" tabindex="-1"></a><span class="in">  summarise(</span></span>
 <span id="cb14-340"><a href="#cb14-340" aria-hidden="true" tabindex="-1"></a><span class="in">    null_mean_estimate = mean(estimate, na.rm = TRUE),</span></span>
 <span id="cb14-341"><a href="#cb14-341" aria-hidden="true" tabindex="-1"></a><span class="in">    null_sd_estimate   = sd(estimate,   na.rm = TRUE),</span></span>
@@ -4597,7 +4557,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb14-352"><a href="#cb14-352" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Merge observed results with null summary ───────────────────────────────────</span></span>
 <span id="cb14-353"><a href="#cb14-353" aria-hidden="true" tabindex="-1"></a><span class="in">sem_results &lt;- sem_results_raw %&gt;%</span></span>
 <span id="cb14-354"><a href="#cb14-354" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(type = &quot;observed&quot;) %&gt;%</span></span>
-<span id="cb14-355"><a href="#cb14-355" aria-hidden="true" tabindex="-1"></a><span class="in">  left_join(sem_null_summary, by = c(&quot;response&quot;, &quot;predictor&quot;)) %&gt;%</span></span>
+<span id="cb14-355"><a href="#cb14-355" aria-hidden="true" tabindex="-1"></a><span class="in">  left_join(sem_null_summary, by = c(&quot;position&quot;,&quot;date_start&quot;,&quot;response&quot;, &quot;predictor&quot;)) %&gt;%</span></span>
 <span id="cb14-356"><a href="#cb14-356" aria-hidden="true" tabindex="-1"></a><span class="in">  # Keep only directed causal paths (→); remove correlated error terms (~~)</span></span>
 <span id="cb14-357"><a href="#cb14-357" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!str_detect(predictor, &quot;~~&quot;)) %&gt;%</span></span>
 <span id="cb14-358"><a href="#cb14-358" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(path_id = paste(predictor, &quot;-&gt;&quot;, response))</span></span>
