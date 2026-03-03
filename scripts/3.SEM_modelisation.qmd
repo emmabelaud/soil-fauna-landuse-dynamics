@@ -12,6 +12,9 @@ execute:
   warning: false
   message: false
   echo: true
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
 # Overview
@@ -20,37 +23,55 @@ execute:
 
 This script is the **third step** of the SEM pipeline, following:
 
-1. `data_preparation.qmd` — builds the full SEM database
-2. `sem_diagnostic.qmd` — selects the optimal window, completeness threshold, and transformations
-
-Here, those validated parameters are applied to run the **full rolling-window pSEM** across all taxa, and to generate a **null distribution via permutation** for inferential comparison.
+1.  `data_preparation.qmd` — builds the full SEM database
+2.  `sem_diagnostic.qmd` — selects the optimal window, completeness
+    threshold, and transformations
 
 ## What this script produces
 
 | Output | File | Description |
-|--------|------|-------------|
+|---------------------|------------------|----------------------------------|
 | Observed path coefficients | `SEM_results_database.csv` | Standardised estimates, p-values, R², season labels for all taxon × window combinations |
-| Null distribution summary | *(in memory)* | Mean and SD of path coefficients under random permutation of all causal variables |
 
 ## Statistical approach
 
-The causal model has four structural equations organised in three tiers, with `land_use` (0 = unmanaged, 1 = managed) as the exogenous driver:
+The causal model has four structural equations organised in three tiers,
+with `land_use` (0 = unmanaged / A, 1 = managed / C) as the exogenous
+binary driver:
 
 $$\text{Tier 1} \quad \text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$$
 $$\phantom{\text{Tier 1}} \quad \text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$$
 $$\text{Tier 2} \quad \text{Root} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{land\_use}$$
 $$\text{Tier 3} \quad \text{Fauna} \leftarrow \beta_6 \cdot \text{microclimate}_1 + \beta_7 \cdot \text{microclimate}_2 + \beta_8 \cdot \text{Root} + \beta_9 \cdot \text{land\_use}$$
 
-Each equation uses a **nested random intercept** (`orientation / depth`) and an **AR(1) correlation structure** to account for temporal autocorrelation within scanner groups.
+The residual covariance between the two microclimate indices is modelled
+explicitly with a `%~~%` term, since both are influenced by the same
+exogenous physical drivers (topography, regional climate) beyond the
+binary land-use contrast.
 
-**Transformations** are applied differentially before z-score standardisation:
-- `root` and `fauna` variables: transformation selected during sensitivity analysis (any of none, Freeman-Tukey, log, Hellinger)
-- `microclimate` indices: only `"log"` or `"none"` — count-specific transforms are not meaningful for continuous environmental variables
-- `land_use`: excluded from z-scoring to preserve its interpretation as a binary 0/1 contrast
+Each equation uses a **nested random intercept** (`orientation / depth`)
+and an **AR(1) correlation structure** to account for temporal
+autocorrelation within scanner groups. The optimizer is set to `optim`
+with 200 maximum iterations to improve convergence stability with nested
+random effects.
 
-**Null distribution**: all causal variables (fauna, root, microclimate indices) are permuted independently across 30 iterations, breaking every directed link while preserving marginal distributions. Observed coefficients with |z| > 1.96 relative to the null are considered non-random.
+**Transformations** are applied differentially before z-score
+standardisation:
 
----
+-   `root` — transformation selected during sensitivity analysis
+    (`TRANSFO_ROOT`)
+-   `fauna` variables — transformation selected during sensitivity
+    analysis (`TRANSFO_FAUNA`)
+-   `microclimate_1` — response-specific transformation
+    (`TRANSFO_MICROCLIMATE_1`), restricted to `"log"` or `"none"`
+    (count-specific transforms are not meaningful for continuous
+    environmental variables)
+-   `microclimate_2` — response-specific transformation
+    (`TRANSFO_MICROCLIMATE_2`), same restriction as above
+-   `land_use` — excluded from z-scoring to preserve its interpretation
+    as a binary 0/1 contrast
+
+------------------------------------------------------------------------
 
 ## 1. Setup
 
@@ -77,40 +98,50 @@ libs <- c(
 invisible(lapply(libs, require, character.only = TRUE))
 ```
 
----
+------------------------------------------------------------------------
 
 ## 2. Parameter loading
 
-Parameters were determined in `sem_diagnostic.qmd` and saved to `model_parameters.txt`.
-If the file is missing, safe fallback defaults are used with a warning.
+Parameters were determined in `sem_diagnostic.qmd` and saved to
+`model_parameters.txt`. If the file is missing, safe fallback defaults
+are used with a warning.
+
+Note: `microclimate_1` and `microclimate_2` may receive different
+transformations because the sensitivity analysis selects them
+independently. Both are restricted to `"log"` or `"none"`.
 
 ```{r load-params}
 if (file.exists("../output/model_parameters.txt")) {
 
-  best_params          <- read_json("../output/model_parameters.txt")
-  WIN_DAYS             <- as.numeric(best_params$selected_window)
-  MIN_RATE             <- as.numeric(best_params$selected_min_rate)
-  TRANSFO_ROOT         <- as.character(best_params$transform_root)
-  TRANSFO_FAUNA        <- as.character(best_params$transform_fauna)
-  TRANSFO_MICROCLIMATE <- as.character(best_params$transform_microclimate)
+  best_params            <- read_json("../output/model_parameters.txt")
+  WIN_DAYS               <- as.numeric(best_params$selected_window)
+  MIN_RATE               <- as.numeric(best_params$selected_min_rate)
+  TRANSFO_ROOT           <- as.character(best_params$transform_root)
+  TRANSFO_FAUNA          <- as.character(best_params$transform_fauna)
+  TRANSFO_MICROCLIMATE_1 <- as.character(best_params$transform_microclimate_1)
+  TRANSFO_MICROCLIMATE_2 <- as.character(best_params$transform_microclimate_2)
 
 } else {
-  # Fallback: safe defaults used when the config file is unavailable
-  WIN_DAYS             <- 14
-  MIN_RATE             <- 0.3
-  TRANSFO_ROOT         <- "sqrt_plus_one"
-  TRANSFO_FAUNA        <- "sqrt_plus_one"
-  TRANSFO_MICROCLIMATE <- "none"
+  WIN_DAYS               <- 14
+  MIN_RATE               <- 0.3
+  TRANSFO_ROOT           <- "sqrt_plus_one"
+  TRANSFO_FAUNA          <- "sqrt_plus_one"
+  TRANSFO_MICROCLIMATE_1 <- "none"
+  TRANSFO_MICROCLIMATE_2 <- "none"
   warning("Configuration file not found. Using default fallback parameters.")
 }
 
 message(sprintf(
-  "Active config — Window: %d days | Min. rate: %.1f | Transfo root: %s | Transfo fauna: %s | Transfo microclimate: %s",
-  WIN_DAYS, MIN_RATE, TRANSFO_ROOT, TRANSFO_FAUNA, TRANSFO_MICROCLIMATE
+  paste0("Active config — Window: %d days | Min. rate: %.1f\n",
+         "  Transfo root: %s | Transfo fauna: %s\n",
+         "  Transfo microclimate_1: %s | Transfo microclimate_2: %s"),
+  WIN_DAYS, MIN_RATE,
+  TRANSFO_ROOT, TRANSFO_FAUNA,
+  TRANSFO_MICROCLIMATE_1, TRANSFO_MICROCLIMATE_2
 ))
 ```
 
----
+------------------------------------------------------------------------
 
 ## 3. Data loading and preprocessing
 
@@ -124,60 +155,66 @@ data_sem_raw <- read.csv("../output/SEM_database.csv",
     position = as.factor(position),
     depth    = as.factor(depth),
     # Binary land-use contrast: 0 = unmanaged (A), 1 = managed (C)
+    # Kept as numeric — not z-scored — so the path coefficient is interpretable
+    # as the direct effect of moving from A to C management
     land_use = as.numeric(position == "C"),
     date     = ymd_hms(date, tz = "UTC"),
     root     = root_growth_cm2_count_24h   # 24-hour root growth flux (cm²)
   )
 
 # ── Load metadata ─────────────────────────────────────────────────────────────
-# Taxa names and microclimate index column names, exported by data_preparation.qmd
 fauna_vars         <- c("all_taxa", readLines("../output/fauna_vars.txt"))
 microclimate_index <- readLines("../output/microclimate_index.txt")
 
 # ── Transformation helper ─────────────────────────────────────────────────────
 #' Apply a named variance-stabilising transformation to a numeric vector
 #'
-#' @param x       Numeric vector (counts or densities).
+#' @param x       Numeric vector (counts, densities, or continuous indices).
 #' @param method  Character. One of: "none", "sqrt_plus_one", "log", "hellinger".
-#' @return Transformed numeric vector.
+#' @return Transformed numeric vector of the same length.
 apply_transfo <- function(x, method) {
   switch(method,
-    "sqrt_plus_one" = sqrt(x) + sqrt(x + 1),          # Freeman-Tukey
-    "log"           = log1p(x),                         # log(x + 1)
-    "hellinger"     = sqrt(x / sum(x, na.rm = TRUE)),  # window-relative scale
-    x                                                   # "none" or NA: identity
+    "sqrt_plus_one" = sqrt(x) + sqrt(x + 1),         # Freeman-Tukey (counts)
+    "log"           = log1p(x),                        # log(x + 1)
+    "hellinger"     = sqrt(x / sum(x, na.rm = TRUE)), # window-relative scale
+    x                                                  # "none": identity
   )
 }
 
 # ── Apply differential transformations ────────────────────────────────────────
 data_transformed <- data_sem_raw %>%
 
-  # Root: biological count variable — all transforms are valid candidates
+  # Root: biological flux variable — all four transforms are valid candidates
   mutate(root = apply_transfo(root, TRANSFO_ROOT)) %>%
 
-  # Fauna variables: same biological rationale as root
+  # Fauna variables: same rationale as root (count data)
   mutate(across(
     all_of(intersect(fauna_vars, names(.))),
     ~ apply_transfo(., TRANSFO_FAUNA)
   )) %>%
 
-  # Microclimate indices: only "log" or "none" are meaningful for continuous
-  # environmental variables; count-specific transforms (Freeman-Tukey, Hellinger)
-  # are not applied even if selected — TRANSFO_MICROCLIMATE is always "log"/"none"
+  # Microclimate indices: each receives its own independently selected
+  # transformation (log or none). Count-specific transforms are never applied
+  # to continuous environmental variables even if they appear in TRANSFO_MICROCLIMATE_*.
   mutate(across(
-    all_of(intersect(microclimate_index, names(.))),
-    ~ apply_transfo(., TRANSFO_MICROCLIMATE)
+    all_of(microclimate_index[1]),  # microclimate_1
+    ~ apply_transfo(., if (TRANSFO_MICROCLIMATE_1 %in% c("log", "none"))
+                         TRANSFO_MICROCLIMATE_1 else "none")
+  )) %>%
+  mutate(across(
+    all_of(microclimate_index[2]),  # microclimate_2
+    ~ apply_transfo(., if (TRANSFO_MICROCLIMATE_2 %in% c("log", "none"))
+                         TRANSFO_MICROCLIMATE_2 else "none")
   )) %>%
 
-  # Z-score standardisation: applied to all numeric variables EXCEPT land_use,
-  # which is a binary 0/1 contrast and must not be rescaled
+  # Z-score standardisation: all numeric variables EXCEPT land_use
   mutate(across(
     where(is.numeric) & !all_of("land_use"),
     ~ as.numeric(scale(.))
   ))
 ```
 
----
+------------------------------------------------------------------------
 
 ## 4. Analytical functions
 
@@ -205,22 +242,28 @@ create_rolling_windows <- function(df, window_days, step_days = 1) {
 
 ### 4.2 SEM structure
 
-The four-equation causal model is fixed across all windows and taxa.
+The four-equation piecewise SEM is fixed across all windows and taxa.
 `land_use` enters all three tiers as the exogenous management driver.
+
+The residual covariance `microclimate_1 %~~% microclimate_2` is included
+because both indices share unmeasured physical drivers (radiation,
+topography) beyond the binary land-use effect. Without this term,
+piecewiseSEM would issue missing-path claims and inflate d-separation
+test statistics.
+
+Each `lme` call uses `opt = "optim"` with 200 iterations — more stable
+than the default `nlminb` for complex nested + AR(1) structures.
 
 ```{r SEM-structure}
 #' Fit the piecewise SEM for a single data window
 #'
 #' @param data      Dataframe with columns: `land_use`, `root`, `fauna`,
 #'                  `microclimate_1`, `microclimate_2`, `orientation`, `depth`.
-#' @param m_indices Character vector of length 2 (microclimate index names).
-#'                  Used by the pipeline wrapper; internally mapped to
-#'                  `microclimate_1` and `microclimate_2`.
-#' @return A `psem` object.
-fit_psem <- function(data, m_indices) {
+#' @return A `psem` object, or NULL if fitting fails.
+fit_psem <- function(data) {
   psem(
 
-    # ── Tier 1: land use drives microclimate ──────────────────────────────────
+    # ── Tier 1: land use drives both microclimate indices ─────────────────────
     lme(microclimate_1 ~ land_use,
         data        = data,
         random      = ~ 1 | orientation / depth,
@@ -245,7 +288,10 @@ fit_psem <- function(data, m_indices) {
         data        = data,
         random      = ~ 1 | orientation / depth,
         correlation = corAR1(form = ~ 1 | orientation / depth),
-        control     = lmeControl(msMaxIter = 200, opt = "optim"))
+        control     = lmeControl(msMaxIter = 200, opt = "optim")),
+
+    # Residual covariance between microclimate indices (shared exogenous drivers)
+    microclimate_1 %~~% microclimate_2
   )
 }
 ```
@@ -255,84 +301,84 @@ fit_psem <- function(data, m_indices) {
 ```{r fixed-pipeline}
 #' Run the full rolling-window SEM pipeline for one taxon variable
 #'
-#' Iterates over all valid time windows, fits the four-equation pSEM, and
-#' extracts standardised path coefficients and R² values.
-#' Both management positions (A and C) are modelled jointly via `land_use`;
-#' there is no longer a per-position split.
+#' Both management positions (A = 0, C = 1) are modelled jointly via `land_use`;
+#' there is no per-position split. Windows are checked for data sufficiency,
+#' variance, and land_use level representativeness before fitting.
 #'
 #' @param taxon_var   Character. Column name of the fauna variable to model.
 #' @param data_raw    Dataframe. Transformed and z-score standardised SEM database.
 #' @param m_indices   Character vector of length 2. Microclimate index column names.
 #' @param window_days Integer. Window duration (days).
 #' @param min_rate    Numeric [0, 1]. Minimum data completeness ratio.
-#'                    Windows below this threshold are skipped.
-#'                    (Max possible rows per window = window_days × 16:
-#'                     4 time steps/day × 2 depths × 2 orientations.)
-#' @return Dataframe with one row per path coefficient
-#'         (taxon × window × predictor → response).
+#'                    Denominator = window_days × 16 slots/day × 2 positions.
+#' @return Dataframe with one row per path coefficient, or NULL if no valid windows.
 run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
                              window_days, min_rate) {
 
   cat("\n--- Processing taxon:", taxon_var, "---\n")
 
-  # Rename dynamic columns to fixed SEM internal names
+  # ── Rename dynamic columns to fixed internal SEM names ────────────────────
   sem_data <- data_raw %>%
     mutate(
       fauna          = !!sym(taxon_var),
       microclimate_1 = !!sym(m_indices[1]),
-      microclimate_2 = !!sym(m_indices[2])
+      microclimate_2 = !!sym(m_indices[2]),
+      depth          = as.factor(depth)
     ) %>%
     select(date, land_use, orientation, depth,
            fauna, root, microclimate_1, microclimate_2)
 
   windows <- create_rolling_windows(sem_data, window_days, step_days = 1)
-
   if (length(windows) == 0) return(NULL)
 
-  # Discard windows with insufficient data density
-  # Both positions combined: max slots = window_days × 16 per position × 2 positions
+  # ── Filter windows by data completeness ───────────────────────────────────
+  # Max possible rows: window_days × 16 reading slots × 2 land-use positions
   valid_wins <- keep(windows,
                      ~ (nrow(drop_na(.x)) / (window_days * 16 * 2)) >= min_rate)
 
-  cat(sprintf("  %d / %d windows passed filter.\n",
+  cat(sprintf("  %d / %d windows passed the completeness filter.\n",
               length(valid_wins), length(windows)))
 
   if (length(valid_wins) == 0) return(NULL)
 
+  # ── Fit SEM on each valid window ──────────────────────────────────────────
   results_list <- map(names(valid_wins), function(w_name) {
+
     win_data <- valid_wins[[w_name]] %>%
       drop_na() %>%
+      # Sort required by corAR1: observations must be in time order within groups
       arrange(land_use, orientation, depth, date)
 
-    # Guard: skip windows where ANY modelled variable is constant
-    # (zero variance causes Cholesky failures in lme and summary.psem)
+    # Guard 1: skip windows where any modelled variable has zero variance
+    # (singular Cholesky decomposition in lme / summary.psem)
     vars_to_check <- c("fauna", "root", "microclimate_1", "microclimate_2")
     if (any(sapply(win_data[vars_to_check], sd, na.rm = TRUE) == 0)) return(NULL)
 
-    # Guard: skip windows where land_use has only one level
-    # (both positions must be present for land_use to be estimable)
+    # Guard 2: skip windows where land_use has only one level
+    # (both positions must be present to estimate the land_use paths)
     if (length(unique(win_data$land_use)) < 2) return(NULL)
 
-    # Fit the SEM; mute warnings from lme optimisation; catch convergence errors
+    # Guard 3: skip windows with non-finite values (from transforms / scaling)
+    if (any(!is.finite(as.matrix(win_data[vars_to_check])))) return(NULL)
+
+    # Fit the SEM — mute lme optimisation warnings; catch hard convergence errors
     model <- tryCatch(
       withCallingHandlers(
-        fit_psem(win_data, m_indices),
+        fit_psem(win_data),
         warning = function(w) invokeRestart("muffleWarning")
       ),
       error = function(e) NULL
     )
     if (is.null(model)) return(NULL)
 
-    # summary.psem() can itself trigger chol.default() failures — wrap it too
+    # summary.psem() can itself fail (Cholesky, singular fit) — wrap separately
     sm <- tryCatch(summary(model), error = function(e) NULL)
     if (is.null(sm)) return(NULL)
 
-    # ── Extract path coefficients ──────────────────────────────────────────────
+    # ── Path coefficients ──────────────────────────────────────────────────
     coefs <- as.data.frame(sm$coefficients)
 
-    # ── Extract R² ────────────────────────────────────────────────────────────
-    # marginal = fixed effects only; conditional = fixed + random
-    # Column names vary across piecewiseSEM versions — detected dynamically
+    # ── R² (marginal = fixed effects; conditional = fixed + random) ────────
     r2_raw <- as.data.frame(sm$R2)
     r2_df  <- r2_raw %>%
       mutate(
@@ -349,22 +395,21 @@ run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
       predictor    = coefs$Predictor,
       estimate     = coefs$Estimate,
       std_estimate = coefs$Std.Estimate,
-      # "<0.001" strings are coerced to numeric by stripping the "<" prefix
+      # piecewiseSEM returns "<0.001" as a string — strip the "<" for numeric use
       p_value      = as.numeric(str_replace(coefs$P.Value, "<", ""))
     ) %>%
       left_join(r2_df, by = "response")
   }) %>%
     compact()
 
+  if (length(results_list) == 0) return(NULL)
   return(map_dfr(results_list, ~ .x))
 }
 ```
 
----
+------------------------------------------------------------------------
 
 ## 5. Model execution
-
-### 5.1 Observed models
 
 ```{r observed-models}
 message(">>> Running observed models across all taxa...")
@@ -373,55 +418,24 @@ sem_results_raw <- map_dfr(
   fauna_vars,
   ~ run_sem_pipeline(.x, data_transformed, microclimate_index, WIN_DAYS, MIN_RATE)
 )
+
+message(sprintf("Observed models complete: %d rows across %d taxa.",
+                nrow(sem_results_raw), n_distinct(sem_results_raw$taxon)))
 ```
 
-### 5.2 Null distribution via permutation
-
-The null distribution is built by independently permuting all causal variables
-(fauna, root, microclimate indices) across `n_perm = 30` iterations. `land_use`
-is **not** permuted — it is the exogenous management driver and its observed
-assignment to scanners must be preserved.
-
-```{r null-distribution}
-n_perm <- 30
-message(sprintf(">>> Generating null distribution (n = %d permutations)...", n_perm))
-
-sem_results_null <- map_dfr(1:n_perm, function(i) {
-  data_null <- data_transformed %>%
-    mutate(across(
-      # Permute all endogenous causal variables; leave land_use intact
-      all_of(c(fauna_vars, "root", microclimate_index)),
-      ~ sample(.)
-    ))
-
-  run_sem_pipeline(fauna_vars[1], data_null, microclimate_index,
-                   WIN_DAYS, MIN_RATE) %>%
-    mutate(iteration = i)
-})
-
-# Summarise null: mean and SD of each path coefficient under H₀
-sem_null_summary <- sem_results_null %>%
-  group_by(response, predictor) %>%
-  summarise(
-    null_mean_estimate = mean(estimate, na.rm = TRUE),
-    null_sd_estimate   = sd(estimate,   na.rm = TRUE),
-    .groups = "drop"
-  )
-```
-
----
+------------------------------------------------------------------------
 
 ## 6. Consolidation and export
 
 ```{r consolidation}
 
-# ── Merge observed results with null summary ───────────────────────────────────
+# ── Clean results  ───────────────────────────────────
 sem_results <- sem_results_raw %>%
-  mutate(type = "observed") %>%
-  left_join(sem_null_summary, by = c("response", "predictor")) %>%
   # Keep only directed causal paths (→); remove correlated error terms (~~)
   filter(!str_detect(predictor, "~~")) %>%
-  mutate(path_id = paste(predictor, "->", response))
+  mutate(
+    path_id = paste(predictor, "->", response)
+  )
 
 # ── Season labels ──────────────────────────────────────────────────────────────
 season_lookup <- tibble(
@@ -446,4 +460,29 @@ message(sprintf(
   n_distinct(sem_results$taxon),
   n_distinct(sem_results$path_id)
 ))
+```
+
+------------------------------------------------------------------------
+
+## 7. Quick sanity check
+
+```{r sanity-check}
+# Overview table: n windows, mean R² and proportion of land_use paths significant
+# across taxa — a fast check that the pipeline produced meaningful output
+sem_results %>%
+  filter(predictor == "land_use") %>%
+  group_by(taxon, response) %>%
+  summarise(
+    n_windows      = n(),
+    mean_std_est   = round(mean(std_estimate, na.rm = TRUE), 3),
+    prop_p05       = round(mean(p_value < 0.05, na.rm = TRUE), 2),
+    mean_r2_marg   = round(mean(r2_marg, na.rm = TRUE), 3),
+    .groups = "drop"
+  ) %>%
+  arrange(response, taxon) %>%
+  knitr::kable(
+    caption = "Land-use path summary across taxa and responses",
+    col.names = c("Taxon", "Response", "N windows",
+                  "Mean std. estimate", "Prop. p < 0.05", "Mean R² marg.")
+  )
 ```

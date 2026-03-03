@@ -36,11 +36,11 @@ Its outputs are consumed directly by:
 
 ## Statistical approach
 
-The causal model has two structural equations:
+The causal model has four structural equations organised in three tiers, with `land_use` (0 = unmanaged, 1 = managed) as the exogenous driver:
 
-$$\text{Root} \leftarrow \beta_1 \cdot \text{microclimate}_1 + \beta_2 \cdot \text{microclimate}_2$$ $$\text{Fauna} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{Root}$$
+$$\text{Tier 1} \quad \text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$$ $$\phantom{\text{Tier 1}} \quad \text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$$ $$\text{Tier 2} \quad \text{Root} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{land\_use}$$ $$\text{Tier 3} \quad \text{Fauna} \leftarrow \beta_6 \cdot \text{microclimate}_1 + \beta_7 \cdot \text{microclimate}_2 + \beta_8 \cdot \text{Root} + \beta_9 \cdot \text{land\_use}$$
 
-Both equations use a **nested random intercept** (`orientation / depth`) and an **AR(1) correlation structure** to account for temporal autocorrelation within scanner groups. Before fitting, all variables are z-score standardised so path coefficients are directly comparable across taxa and predictors.
+Both equations use a **nested random intercept** (`orientation / depth`) and an **AR(1) correlation structure** to account for temporal autocorrelation within scanner groups.
 
 ## Sensitivity analysis rationale
 
@@ -174,7 +174,7 @@ fit_psem <- function(data, m_indices) {
         control     = lmeControl(msMaxIter = 200, opt = "optim")),
 
     lme(microclimate_2 ~ land_use,
-        data        = data,
+       data        = data,
         random      = ~ 1 | orientation / depth,
         correlation = corAR1(form = ~ 1 | orientation / depth),
         control     = lmeControl(msMaxIter = 200, opt = "optim")),
@@ -191,7 +191,9 @@ fit_psem <- function(data, m_indices) {
         data        = data,
         random      = ~ 1 | orientation / depth,
         correlation = corAR1(form = ~ 1 | orientation / depth),
-        control     = lmeControl(msMaxIter = 200, opt = "optim"))
+        control     = lmeControl(msMaxIter = 200, opt = "optim")),
+    
+    microclimate_1 %~~% microclimate_2
   )
 }
 ```
@@ -361,11 +363,8 @@ test_configuration <- function(w_days, m_rate_val, transfo_type,
                                 data_raw, taxon, m_indices) {
   df_iter <- data_raw
 
-  # ── A. Apply transformation ────────────────────────────────────────────────
-  # Fauna and root: all four transformations are ecologically valid (count data)
-  biological_vars <- c(fauna_vars, "root")
   df_iter <- df_iter %>%
-    mutate(across(all_of(biological_vars), function(x) {
+    mutate(across(all_of(c(fauna_vars, "root", m_indices)), function(x) {
       switch(transfo_type,
         "sqrt_plus_one" = transform_ft(x),
         "log"           = transform_log(x),
@@ -374,18 +373,6 @@ test_configuration <- function(w_days, m_rate_val, transfo_type,
       )
     }))
   
-  # Microclimate indices: only log or none are meaningful for continuous variables.
-  # Freeman-Tukey and Hellinger are count-specific and are not applied here.
-  microclimate_transfo <- if (transfo_type %in% c("log", "none")) transfo_type else "none"
-  df_iter <- df_iter %>%
-    mutate(across(all_of(intersect(m_indices, names(.))), function(x) {
-      switch(microclimate_transfo,
-        "log" = transform_log(x),
-        x
-      )
-    }))
-
-
   # ── B. Z-score standardisation of all numeric variables ────────────────────
   df_iter <- df_iter %>%
     mutate(across(where(is.numeric) & !all_of("land_use"), ~ as.numeric(scale(.))))
@@ -478,10 +465,8 @@ global_optimization <- best_per_variable %>%
     mean_r2              = mean(avg_r2_marginal[response %in% c("root", "fauna")]),
     transfo_root         = transformation[response == "root"],
     transfo_fauna        = transformation[response == "fauna"],
-    transfo_microclimate = {
-      raw <- transformation[response == "microclimate_1"]
-      if (raw %in% c("log", "none")) raw else "none"
-    },
+    transfo_microclimate_1 = transformation[response == "microclimate_1"],
+    transfo_microclimate_2 = transformation[response == "microclimate_2"],
     .groups = "drop"
   ) %>%
   mutate(global_score = combined_validity * mean_r2) %>%
@@ -499,7 +484,8 @@ global_optimization %>%
     "Max missing data"     = min_rate,
     "Transfo root"         = transfo_root,
     "Transfo fauna"        = transfo_fauna,
-    "Transfo microclimate" = transfo_microclimate,
+    "Transfo microclimate 1" = transfo_microclimate_1,
+    "Transfo microclimate 2" = transfo_microclimate_2,
     "Validity (joint)"     = combined_validity,
     "R² Marginal (mean)"   = mean_r2,
     "Score"                = global_score
@@ -540,7 +526,8 @@ params_to_save <- list(
   selected_min_rate = final_selection$min_rate,
   transform_root    = final_selection$transfo_root,
   transform_fauna   = final_selection$transfo_fauna,
-  transform_microclimate = final_selection$transfo_microclimate
+  transform_microclimate_1 = final_selection$transfo_microclimate_1,
+  transform_microclimate_2 = final_selection$transfo_microclimate_2
 )
 
 jsonlite::write_json(params_to_save,
