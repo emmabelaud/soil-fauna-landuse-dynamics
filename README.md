@@ -71,20 +71,24 @@ For each combination, the pipeline runs on 50 randomly sampled windows and evalu
 
 ### Script 3 — `3_SEM_modelisation.qmd`
 
-Applies the validated parameters from script 2 to run the **full rolling-window piecewise SEM** across all taxa and positions. The causal structure is:
+Applies the validated parameters from script 2 to run the full rolling-window
+piecewise SEM across all taxa and positions. The causal model has four structural
+equations organised in three tiers, with `land_use` (0 = unmanaged, 1 = managed)
+as the exogenous driver:
 
-The causal model has four structural equations organised in three tiers, with `land_use` (0 = unmanaged, 1 = managed) as the exogenous driver:
+**Tier 1 — land use shapes microclimate**
+- `microclimate_1 ← β₁ · land_use`
+- `microclimate_2 ← β₂ · land_use`
 
-$$
-\begin{aligned}
-\text{Tier 1} \quad & \text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use} \\
-& \text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use} \\
-\text{Tier 2} \quad & \text{Root} \leftarrow \beta_3 \cdot \text{microclimate}_1 + \beta_4 \cdot \text{microclimate}_2 + \beta_5 \cdot \text{land\_use} \\
-\text{Tier 3} \quad & \text{Fauna} \leftarrow \beta_6 \cdot \text{microclimate}_1 + \beta_7 \cdot \text{microclimate}_2 + \beta_8 \cdot \text{Root} + \beta_9 \cdot \text{land\_use}
-\end{aligned}
-$$
+**Tier 2 — microclimate and land use drive root growth**
+- `root ← β₃ · microclimate_1 + β₄ · microclimate_2 + β₅ · land_use`
 
-Each equation uses a nested random intercept (`orientation / depth`) and an AR(1) correlation structure. A **null distribution** is generated via 30 permutation iterations to confirm that observed path coefficients are non-random.
+**Tier 3 — everything drives fauna**
+- `fauna ← β₆ · microclimate_1 + β₇ · microclimate_2 + β₈ · root + β₉ · land_use`
+
+Each equation uses a nested random intercept (`orientation / depth`) and an AR(1)
+correlation structure. A null distribution is generated via 30 permutation
+iterations to confirm that observed path coefficients are non-random.
 
 **Outputs:** `SEM_results_database.csv`
 
