@@ -1,6 +1,4 @@
-# From pixels to patterns
-
-**High-throughput in-situ imaging unveils soil fauna dynamics in agroforestry systems**
+# From pixels to patterns : **High-throughput in-situ imaging unveils soil fauna dynamics in agroforestry systems**
 
 ------------------------------------------------------------------------
 
@@ -27,6 +25,8 @@ The overarching question is whether perennial vegetation buffers soil communitie
 ------------------------------------------------------------------------
 
 ## Causal model (piecewise SEM)
+
+![SEM diagram](images/clipboard-1757451306.png)
 
 The model is fitted independently on overlapping rolling time windows. All variables are z-score standardised prior to modelling, making path coefficients directly comparable across taxa and predictors. `land_use` (0 = A, 1 = C) is the exogenous binary driver and is deliberately excluded from z-scoring so that interaction coefficients retain their interpretation as slope differences between management types.
 
@@ -55,8 +55,6 @@ fauna ← β₈ · mc₁ + β₉ · mc₂ + β₁₀ · root + β₁₁ · land_
 Each equation includes a nested random intercept (`orientation / depth`) and an AR(1) correlation structure to account for temporal autocorrelation within scanner groups. A residual covariance term (`microclimate_1 %~~% microclimate_2`) captures shared physical drivers not represented by the binary land-use contrast.
 
 The interaction structure produces an intentional asymmetry in the output: `std_estimate` is the path slope in the unmanaged system (land_use = 0, baseline); `std_estimate_C` is the total slope in the managed system (main effect + interaction). `p_value` tests whether the slope in A differs from zero; `interaction_p_value` tests whether the slope in C differs from the slope in A. There is no direct significance test for the slope in C alone — this asymmetry is carried through all figures and tables in script 4.
-
-![SEM diagram](images/image.png)
 
 ------------------------------------------------------------------------
 
