@@ -4,29 +4,31 @@
 
 ------------------------------------------------------------------------
 
-## Study context
-
-Year-long scanner time series of soil invertebrate communities across two contrasted positions in an agroforestry system:
-
-| Position | Land use  | Description                          |
-|----------|-----------|--------------------------------------|
-| A        | Unmanaged | Tree cover and herbaceous vegetation |
-| C        | Managed   | Cultivated cover                     |
+This repository contains the R scripts associated with the publication *"From pixels to patterns: high-throughput in-situ imaging unveils soil fauna dynamics over a year in agroforestry systems"*, currently in preparation. The study uses continuous in situ imaging at high temporal resolution to investigate how land-use shapes the environmental drivers of soil invertebrate activity in a Mediterranean agroforestry context.
 
 ------------------------------------------------------------------------
 
-## Research questions
+## Study description
 
-**Does perennial vegetation buffer soil communities against environmental fluctuations?**
+Soil invertebrate communities were monitored at 6-hour resolution over nearly two years using underground scanners deployed across two contrasted land-use positions within the same agroforestry system: position **C** (managed — cultivated cover) and position **A** (unmanaged — tree cover with herbaceous vegetation). By combining faunal activity time series with continuous measurements of root dynamics and paired microclimate indices, we apply a rolling-window piecewise SEM to characterise both the direction and the temporal variability of causal pathways linking edaphic conditions to soil faunal activity. The rolling-window approach — fitting the model repeatedly on successive overlapping time windows rather than on the full series — is central to the study design: it yields a distribution of standardised path coefficients over time, capturing how the strength and sign of causal links fluctuate across seasons and disturbance events.
 
--   **H1 — Land-use effects on soil conditions.** Managed systems increase the variability and extremes of microclimate, root resource supply, and faunal abundance relative to unmanaged systems.
--   **H2 — Shift in activity drivers.** In cultivated soils, faunal activity is strongly coupled to abiotic fluctuations; under trees it is governed by internal biotic regulation.
+------------------------------------------------------------------------
+
+## Research questions and hypotheses under development
+
+The overarching question is whether perennial vegetation buffers soil communities against environmental fluctuations — and through which causal pathways this buffering operates.
+
+**H1 — Land-use effects on soil conditions.** Managed (cultivated) systems are expected to increase the variability and extremes of microclimate, root resource supply, and faunal abundance relative to unmanaged (treed) systems. Exposed soils amplify thermal and moisture fluctuations, while periodic management interventions (tillage, harvest, irrigation) generate episodic resource pulses with no equivalent under continuous perennial cover.
+
+**H2 — Shift in environmental forcing pathways.** In cultivated soils, faunal activity is expected to be strongly and directly coupled to abiotic forcing — microclimate extremes and resource inputs drive abundance in a bottom-up, environmentally controlled manner. Under tree cover, where abiotic variability is dampened, biotic pathways (root-mediated resource supply, trophic interactions) are expected to carry proportionally more weight. This represents a qualitative shift in the causal architecture governing soil communities, not merely a difference in effect sizes.
+
+**H3 — Temporal synchrony of causal rules.** Because both systems share the same regional climate signal, abiotic forcing paths (microclimate → fauna) are expected to remain temporally synchronised between A and C across most of the year. Synchrony is expected to break down in summer, when irrigation and other management-specific interventions in C decouple local soil conditions from the ambient climate, creating system-specific dynamics that are absent in A.
 
 ------------------------------------------------------------------------
 
 ## Causal model (piecewise SEM)
 
-Fitted independently on overlapping rolling time windows. All variables z-score standardised. `land_use` (0 = A, 1 = C) is the exogenous binary driver.
+The model is fitted independently on overlapping rolling time windows. All variables are z-score standardised prior to modelling, making path coefficients directly comparable across taxa and predictors. `land_use` (0 = A, 1 = C) is the exogenous binary driver and is deliberately excluded from z-scoring so that interaction coefficients retain their interpretation as slope differences between management types.
 
 **Tier 1 — land use shapes microclimate**
 
@@ -50,11 +52,11 @@ fauna ← β₈ · mc₁ + β₉ · mc₂ + β₁₀ · root + β₁₁ · land_
       + β₁₄ · (root × land_use)
 ```
 
-Each equation: nested random intercept `orientation / depth`, AR(1) correlation structure, residual covariance `microclimate_1 %~~% microclimate_2`.
+Each equation includes a nested random intercept (`orientation / depth`) and an AR(1) correlation structure to account for temporal autocorrelation within scanner groups. A residual covariance term (`microclimate_1 %~~% microclimate_2`) captures shared physical drivers not represented by the binary land-use contrast.
 
-Interaction terms yield system-specific slopes: `std_estimate` = β in A (baseline); `std_estimate_C` = β in C (main + interaction). `p_value` tests slope A ≠ 0; `interaction_p_value` tests C ≠ A.
+The interaction structure produces an intentional asymmetry in the output: `std_estimate` is the path slope in the unmanaged system (land_use = 0, baseline); `std_estimate_C` is the total slope in the managed system (main effect + interaction). `p_value` tests whether the slope in A differs from zero; `interaction_p_value` tests whether the slope in C differs from the slope in A. There is no direct significance test for the slope in C alone — this asymmetry is carried through all figures and tables in script 4.
 
-![](images/image.png)
+![SEM diagram](images/image.png)
 
 ------------------------------------------------------------------------
 
@@ -65,11 +67,13 @@ Interaction terms yield system-specific slopes: `std_estimate` = β in A (baseli
 | `1_database_edition.qmd` | Fauna, microclimate, root, and season assembly | `SEM_database.csv` |
 | `2_SEM_diagnostic.qmd` | Sensitivity analysis — window × completeness × transformation (120 combinations) | `model_parameters.txt` |
 | `3_SEM_modelisation.qmd` | Full rolling-window SEM across all taxa | `SEM_results_database.csv` |
-| `4_SEM_results_analysis.qmd` | Figures and tables | TIFF figures |
+| `4_SEM_results_analysis.qmd` | Figures and tables for H1–H3 | TIFF figures |
+
+Scripts must be run in order. Script 2 is computationally intensive (120 parameter combinations × 50 sampled windows each).
 
 ``` r
 quarto::quarto_render("scripts/1_database_edition.qmd")
-quarto::quarto_render("scripts/2_SEM_diagnostic.qmd")   # computationally intensive
+quarto::quarto_render("scripts/2_SEM_diagnostic.qmd")
 quarto::quarto_render("scripts/3_SEM_modelisation.qmd")
 quarto::quarto_render("scripts/4_SEM_results_analysis.qmd")
 ```
