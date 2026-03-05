@@ -3,12 +3,12 @@ title: "From pixels to patterns — results and visualisation"
 author: "Emma Belaud"
 format:
   html:
-    css: css/styles.css  
+    css: css/styles.css
     embed-resources: true
     code-tools: true
     toc: true
     toc-depth: 4
-execute: 
+execute:
   warning: false
   message: false
   echo: false
@@ -18,47 +18,47 @@ execute:
 
 ## Role in the pipeline
 
-This script is the **final step** of the SEM pipeline. It loads the path coefficient database produced by `check_models_performance.qmd` and produces three analytical sections:
+This script is the **final analytical step** of the SEM pipeline. It loads
+the path coefficient database produced by `3_SEM_modelisation.qmd` and
+addresses the three research questions through figures and tables.
 
-| Section | Question | Output |
-|----|----|----|
-| **Environmental forcing** | How strongly and consistently do microclimate and root dynamics drive fauna across management types? | Distribution plots of standardised path coefficients and R² |
-| **Deterministic vs. stochastic processes** | Are observed causal effects statistically distinguishable from random noise? | Z-score distributions relative to the permutation null |
-| **Temporal stability** | Do the strengths of causal paths fluctuate over time, or remain steady? | Coefficient of variation (CV) per path and position |
-| **Spatial synchrony** | Are the same causal rules operating simultaneously in both management zones? | Pearson correlation and rolling correlation of path coefficients (A vs. C) |
+## SEM structure
 
-## Analytical design
+**Tier 1 — land use shapes microclimate (additive):**
 
-Two management positions are contrasted throughout:
+$$\text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$$
+$$\text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$$
 
-| Code  | Description                                             |
-|-------|---------------------------------------------------------|
-| **A** | Unmanaged system — tree cover and herbaceous vegetation |
-| **C** | Managed system — cultivated cover                       |
+**Tier 2 — (microclimate) × land use drives root:**
 
-------------------------------------------------------------------------
+$$\text{Root} \leftarrow \beta_3 \cdot \text{mc}_1 + \beta_4 \cdot \text{mc}_2 + \beta_5 \cdot \text{lu} + \beta_6 \cdot (\text{mc}_1 \times \text{lu}) + \beta_7 \cdot (\text{mc}_2 \times \text{lu})$$
 
-## 1. Setup
+**Tier 3 — (microclimate + root) × land use drives fauna:**
 
-```{r setup}
+$$\text{Fauna} \leftarrow \beta_8 \cdot \text{mc}_1 + \beta_9 \cdot \text{mc}_2 + \beta_{10} \cdot \text{Root} + \beta_{11} \cdot \text{lu} + \beta_{12} \cdot (\text{mc}_1 \times \text{lu}) + \beta_{13} \cdot (\text{mc}_2 \times \text{lu}) + \beta_{14} \cdot (\text{Root} \times \text{lu})$$
+
+*where mc = microclimate index, lu = land\_use.*
+
+![](images/image.png)
+
+The interaction structure is central to the analysis. `std_estimate` gives
+the path slope **in A** (land_use = 0, the unmanaged baseline);
+`std_estimate_C` gives the total slope **in C** (main effect + interaction).
+`p_value` tests whether slope A = 0; `interaction_p_value` tests whether
+slope C differs from slope A. There is no direct significance test for
+slope C alone — this asymmetry propagates into all significance summaries
+reported in figures and tables.
+
+---
+
+```{r}
+#| label: setup
 invisible(Sys.setlocale("LC_TIME", "C"))
 dir.create("../output", showWarnings = FALSE)
 
-# ── Libraries ─────────────────────────────────────────────────────────────────
 libs <- c(
-  "tidyverse",    # Data wrangling and visualisation
-  "lubridate",    # Date/time manipulation
-  "ade4",         # Multivariate analysis
-  "piecewiseSEM", # Piecewise SEM
-  "performance",  # Model performance metrics
-  "patchwork",    # Multi-panel figure composition
-  "slider",       # Rolling window calculations
-  "kableExtra",   # Enhanced HTML tables
-  "phylopath",    # Phylogenetic path analysis utilities
-  "e1071",        # Skewness / kurtosis
-  "nlme",         # Mixed models with correlation structures
-  "zoo",          # Time series tools
-  "ggdist"        # Distribution visualisation (stat_halfeye, stat_dots)
+  "tidyverse", "lubridate", "patchwork",
+  "kableExtra", "nlme", "zoo", "ggdist", "slider", "ggside"
 )
 invisible(lapply(libs, require, character.only = TRUE))
 
@@ -68,119 +68,146 @@ fauna_vars         <- readLines("../output/fauna_vars.txt")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # VISUAL IDENTITY
-# All colour palettes and the shared ggplot theme are centralised here.
-# Any future style change requires editing only this block.
+# All design constants centralised here. GCB target: figures printed at
+# 85 mm (single column) or 175 mm (double column) at 300 dpi.
+# Font sizes are calibrated for legibility at those print dimensions.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Master colour palette ─────────────────────────────────────────────────────
-# Earthy greens → warm terracottas, reflecting the soil-to-fauna causal gradient
 SEM_COLORS <- list(
-
-  # One colour per directed path (ordered abiotic → biotic)
   path = c(
-    "#c2cab2",   # microclimate_1 → root  (light sage)
-    "#555d45",   # microclimate_2 → root  (dark olive)
-    "#dea88b",   # microclimate_1 → fauna (warm sand)
-    "#d1855c",   # microclimate_2 → fauna (terracotta)
-    "#955f42"    # root           → fauna (deep umber)
+    "#c2cab2",  # mc1 → root  (light sage)
+    "#555d45",  # mc2 → root  (dark olive)
+    "#dea88b",  # mc1 → fauna (warm sand)
+    "#d1855c",  # mc2 → fauna (terracotta)
+    "#955f42"   # root → fauna (deep umber)
   ),
-
-  # Response variables
   response = c(root = "#94a378", fauna = "#d1855c"),
-
-  # Management positions
-  position = c(A = "#555d45", C = "#d1855c"),
-
-  # Reference lines
-  null_line   = "firebrick",   # ±1.96 threshold lines
-  zero_line   = "black",       # β = 0 reference
-  segment     = "grey70",      # lollipop stems
-  sync_anchor = "#385438",     # r = 0 reference in synchrony plots
-
-  # Diverging palette for the synchrony gradient (negative → zero → positive)
+  position = c(A = "#3d5a3e", C = "#c1603a"),
   sync_low  = "#B2182B",
   sync_mid  = "#F7F7F7",
   sync_high = "#2166AC"
 )
 
-# Named vectors for scale_fill/colour_manual calls
-path_palette     <- setNames(SEM_COLORS$path, NULL)   # assigned after path_levels
-response_palette <- SEM_COLORS$response
-position_palette <- SEM_COLORS$position
+position_palette  <- SEM_COLORS$position
+response_palette  <- SEM_COLORS$response
+position_labeller <- c(A = "Unmanaged (A)", C = "Managed (C)")
+season_order      <- c("Spring", "Summer", "Autumn", "Winter")
+
+season_fills <- c(
+  Spring = "#F2F2F2",
+  Summer = "#E4E4E4",
+  Autumn = "#F2F2F2",
+  Winter = "#E4E4E4"
+)
 
 # ── Path-level ordering ───────────────────────────────────────────────────────
-# Paths are ordered from purely abiotic (microclimate → root) to
-# biotic-mediated (root → fauna) to reflect the causal hierarchy
+# Ordered from purely abiotic (mc → root) to biotic-mediated (root → fauna),
+# reflecting the causal hierarchy and preserved across all figures.
 path_levels <- tibble(
   path_order = 1:5,
   path_id = c(
-    paste0(microclimate_index[1], " -> root"),
-    paste0(microclimate_index[2], " -> root"),
-    paste0(microclimate_index[1], " -> fauna"),
-    paste0(microclimate_index[2], " -> fauna"),
-    "root -> fauna"
+    paste0(microclimate_index[1], " \u2192 root"),
+    paste0(microclimate_index[2], " \u2192 root"),
+    paste0(microclimate_index[1], " \u2192 fauna"),
+    paste0(microclimate_index[2], " \u2192 fauna"),
+    "root \u2192 fauna"
   )
 )
-
 path_palette <- setNames(SEM_COLORS$path, path_levels$path_id)
 
-# ── Facet labellers ───────────────────────────────────────────────────────────
-# Defined once so any change to position labels propagates to all figures
-position_labeller <- c(A = "Unmanaged system", C = "Managed system")
-
 # ── Shared ggplot theme ───────────────────────────────────────────────────────
-#' Base ggplot theme for all SEM figures
-#'
-#' Extends theme_minimal() with project-specific defaults:
-#' bordered panels, suppressed minor gridlines, bold strip labels,
-#' and configurable legend position. Pass additional theme() calls
-#' after this function to override individual elements per plot.
-#'
-#' @param base_size  Integer. Base font size (default: 11).
-#' @param legend_pos Character. Passed to legend.position (default: "none").
-#' @return A ggplot2 theme object.
-theme_sem <- function(base_size = 11, legend_pos = "none") {
-  theme_minimal(base_size = base_size) %+replace%
+theme_sem <- function(base_size = 8, legend_pos = "none") {
+  theme_classic(base_size = base_size) %+replace%
     theme(
-      # Panel
-      panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.5),
+      panel.border     = element_rect(color = "grey20", fill = NA,
+                                      linewidth = 0.3),
+      panel.grid.major = element_line(color = "grey94", linewidth = 0.25),
       panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(color = "grey92", linewidth = 0.3),
-
-      # Strip labels (facet headers)
-      strip.text       = element_text(size = base_size - 1, face = "bold"),
-      strip.background = element_blank(),
-
-      # Axes
-      axis.title       = element_text(size = base_size - 1),
-      axis.text        = element_text(size = base_size - 2),
-
-      # Title hierarchy
-      plot.title    = element_text(size = base_size, face = "bold", hjust = 0,
-                                   margin = margin(b = 4)),
-      plot.subtitle = element_text(size = base_size - 1, color = "grey40",
-                                   hjust = 0, margin = margin(b = 6)),
-      plot.caption  = element_text(size = base_size - 2, color = "grey50",
-                                   hjust = 0, margin = margin(t = 6)),
-
-      # Legend
-      legend.position = legend_pos,
-      legend.title    = element_text(size = base_size - 1, face = "bold"),
-      legend.text     = element_text(size = base_size - 2),
-
-      # Margins
-      plot.margin = margin(8, 8, 8, 8)
+      panel.background = element_rect(fill = "white", color = NA),
+      axis.line        = element_blank(),
+      axis.ticks       = element_line(color = "grey40", linewidth = 0.3),
+      axis.ticks.length = unit(2, "pt"),
+      axis.title       = element_text(size = base_size - 0.5, color = "grey20"),
+      axis.text        = element_text(size = base_size - 1.5, color = "grey30"),
+      strip.text       = element_text(size = base_size - 1, face = "bold",
+                                      color = "grey15"),
+      strip.background = element_rect(fill = "grey96", color = "grey96",
+                                      linewidth = 0.3),
+      plot.title    = element_text(size = base_size + 0.5, face = "bold",
+                                   hjust = 0, color = "grey10",
+                                   margin = margin(b = 3)),
+      plot.subtitle = element_text(size = base_size - 1, color = "grey45",
+                                   hjust = 0, margin = margin(b = 5)),
+      plot.caption  = element_text(size = base_size - 2, color = "grey55",
+                                   hjust = 0, margin = margin(t = 4)),
+      legend.position    = legend_pos,
+      legend.background  = element_blank(),
+      legend.key         = element_blank(),
+      legend.title       = element_text(size = base_size - 1, face = "bold",
+                                        color = "grey20"),
+      legend.text        = element_text(size = base_size - 1.5, color = "grey30"),
+      legend.key.size    = unit(8, "pt"),
+      legend.spacing.x   = unit(3, "pt"),
+      plot.margin = margin(6, 6, 6, 6)
     )
 }
 
-# ── SEM results database ──────────────────────────────────────────────────────
+# ── Helper: reusable seasonal background layer ────────────────────────────────
+make_season_layers <- function(date_range, y_label_pos = Inf, label_size = 2.2) {
+
+  study_years <- seq(year(date_range[1]), year(date_range[2]))
+
+  bands <- tibble(
+    season  = names(season_fills),
+    m_start = c(3L, 6L, 9L, 12L),
+    m_end   = c(6L, 9L, 12L, 3L),
+    fill    = unname(season_fills)
+  ) %>%
+    crossing(year = study_years) %>%
+    mutate(
+      xmin = as.Date(paste(year, m_start, "01", sep = "-")),
+      xmax = as.Date(paste(
+        if_else(m_end < m_start, year + 1L, year),
+        m_end, "01", sep = "-"
+      )),
+      xmid = xmin + (xmax - xmin) / 2
+    ) %>%
+    filter(xmin < date_range[2], xmax > date_range[1]) %>%
+    mutate(
+      xmin = pmax(xmin, date_range[1]),
+      xmax = pmin(xmax, date_range[2])
+    )
+
+  rect_layers <- pmap(
+    bands %>% select(xmin, xmax, fill),
+    function(xmin, xmax, fill)
+      annotate("rect", xmin = xmin, xmax = xmax,
+               ymin = -Inf, ymax = Inf,
+               fill = fill, alpha = 1)
+  )
+
+  label_layer <- geom_text(
+    data        = bands,
+    aes(x = xmid, y = y_label_pos, label = season),
+    inherit.aes = FALSE,
+    vjust = 1.6, size = label_size, color = "grey60", fontface = "italic",
+    family = "sans"
+  )
+
+  c(rect_layers, list(label_layer))
+}
+
+# ── Load SEM results database ─────────────────────────────────────────────────
 data_sem_results <- read.csv(
   "../output/SEM_results_database.csv",
   na.strings = c("", "NA")
 ) %>%
-  mutate(taxon = if_else(taxon == "fauna", "null model", taxon)) %>%
-  left_join(path_levels, by = "path_id")%>%
-  # Replace internal microclimate aliases with their actual index names
+  mutate(
+    taxon      = if_else(taxon == "fauna", "null model", taxon),
+    date_start = as.Date(date_start),
+    season     = factor(season, levels = season_order)
+  ) %>%
+  left_join(path_levels, by = "path_id") %>%
   mutate(
     predictor = case_when(
       predictor == "microclimate_1" ~ microclimate_index[1],
@@ -188,490 +215,760 @@ data_sem_results <- read.csv(
       TRUE ~ predictor
     ),
     path_id = str_replace(path_id, "microclimate_1", microclimate_index[1]),
-    path_id = str_replace(path_id, "microclimate_2", microclimate_index[2])
+    path_id = str_replace(path_id, "microclimate_2", microclimate_index[2]),
+    path_id = factor(path_id, levels = path_levels$path_id)
+  )
+
+# ── Load raw observation database ─────────────────────────────────────────────
+data_sem_raw <- read.csv("../output/SEM_database.csv",
+                         sep = ",", na.strings = c("", "NA")) %>%
+  mutate(
+    position = as.factor(position),
+    depth    = as.factor(depth),
+    land_use = as.numeric(position == "C"),
+    date     = as.Date(ymd_hms(date, tz = "UTC")),
+    root     = root_growth_cm2_count_24h,
+    month    = month(date),
+    season   = factor(case_when(
+      month %in% c(3,  4,  5) ~ "Spring",
+      month %in% c(6,  7,  8) ~ "Summer",
+      month %in% c(9, 10, 11) ~ "Autumn",
+      TRUE                    ~ "Winter"
+    ), levels = season_order)
+  )
+
+# ── Reshape SEM results: wide → long A / C ────────────────────────────────────
+# std_estimate   = β in A (land_use = 0, baseline)
+# std_estimate_C = β in C (main effect + interaction combined)
+data_long <- data_sem_results %>%
+  filter(!is.na(path_id)) %>%
+  select(taxon, date_start, path_id, predictor, response,
+         season, month, path_order, r2_cond, r2_marg,
+         std_estimate, std_estimate_C,
+         p_value, interaction_p_value, has_interaction) %>%
+  pivot_longer(
+    cols      = c(std_estimate, std_estimate_C),
+    names_to  = "position",
+    values_to = "beta"
+  ) %>%
+  mutate(
+    position = if_else(position == "std_estimate", "A", "C"),
+    position = factor(position, levels = c("A", "C"))
+  )
+
+# ── Wide format for direct A vs C comparison ──────────────────────────────────
+beta_wide <- data_long %>%
+  select(taxon, date_start, path_id, position, beta,
+         interaction_p_value, p_value, season) %>%
+  pivot_wider(
+    names_from  = position,
+    values_from = beta,
+    values_fn   = list(beta = first)
+  ) %>%
+  filter(!is.na(A), !is.na(C)) %>%
+  mutate(sig_diff = !is.na(interaction_p_value) & interaction_p_value < 0.05)
+
+# ── Outlier filter for distribution plots ─────────────────────────────────────
+# Applied only to visualisation; tables use the full distribution.
+Q1_val  <- quantile(data_long$beta, 0.25, na.rm = TRUE)
+Q3_val  <- quantile(data_long$beta, 0.75, na.rm = TRUE)
+IQR_val <- Q3_val - Q1_val
+
+data_plot <- data_long %>%
+  filter(
+    beta >= Q1_val - 1.5 * IQR_val,
+    beta <= Q3_val + 1.5 * IQR_val,
+    !is.na(path_id)
   )
 ```
 
-------------------------------------------------------------------------
+---
 
-## 2. Environmental forcing across system types
+## 1. H1 — Land-use effects on edaphic conditions and faunal activity
 
-> How strongly and consistently do microclimate and root dynamics drive fauna across management types?
+> **How does land-use management reshape edaphic conditions, and does this
+> translate into contrasted patterns of faunal activity across systems?**
 
-**Directed acyclic graph (DAG) — causal structure**
+This section quantifies the direct effect of land use on each tier of the
+causal cascade: microclimate first (β₁, β₂), then root dynamics (β₅), then
+fauna (β₁₁, one per taxon). The slope-graph figure reads as a summary of
+management impact across the whole system — lines above zero indicate
+variables that are higher or more active in the managed system, lines below
+indicate suppression. The seasonal table then unpacks whether these effects
+are consistent year-round or concentrated in specific phenological periods,
+which is where disturbance events (irrigation, tillage) would be expected to
+leave the clearest signature.
 
-![](images/DAG.png)
+Note that β₁₁ is the *direct* management effect on fauna after conditioning
+on microclimate and root pathways — it captures the portion of the A vs C
+contrast that cannot be attributed to altered environmental forcing.
 
-```{r prep-plot-data}
-data_plot <- data_sem_results %>%
-  filter(type == "observed")  %>%
-  # Remove extreme outliers: retain values within Q1 ± 1.5 × IQR
+```{r landuse-shared}
+#| label: landuse-shared
+
+# ── Shared data: computed once, used by both figure and table ─────────────────
+# β₁, β₂ : land_use → microclimate (Tier 1) — from all_taxa run only,
+#           as these equations are independent of the fauna variable modelled.
+# β₅     : land_use → root (Tier 2) — same rationale.
+# β₁₁    : land_use → fauna (Tier 3) — retained per taxon.
+
+env_raw <- data_sem_results %>%
   filter(
-    std_estimate >= quantile(std_estimate, 0.25, na.rm = TRUE) -
-                    1.5 * IQR(std_estimate, na.rm = TRUE),
-    std_estimate <= quantile(std_estimate, 0.25, na.rm = TRUE) +
-                    1.5 * IQR(std_estimate, na.rm = TRUE)
+    predictor == "land_use",
+    response  %in% c("microclimate_1", "microclimate_2", "root")
   ) %>%
-  mutate(path_id = factor(path_id, levels = path_levels$path_id))
+  mutate(
+    label = case_when(
+      response == "microclimate_1" ~ paste0("\u03b2\u2081 (", microclimate_index[1], ")"),
+      response == "microclimate_2" ~ paste0("\u03b2\u2082 (", microclimate_index[2], ")"),
+      response == "root"           ~ "\u03b2\u2085 (root growth)"
+    ),
+    group = case_when(
+      response %in% c("microclimate_1", "microclimate_2") ~ "Microclimate",
+      response == "root"                                  ~ "Root growth"
+    ),
+    season = factor(season, levels = season_order)
+  )
 
-# Significance rate: proportion of windows yielding p < 0.05 per path × position
-pval_summary <- data_plot %>%
+fauna_raw <- data_sem_results %>%
+  filter(predictor == "land_use", response == "fauna") %>%
+  mutate(
+    label  = if_else(taxon == "null model", "all_taxa", taxon),
+    group  = "Faunal activity",
+    season = factor(season, levels = season_order)
+  )
+
+all_raw <- bind_rows(
+  env_raw   %>% select(label, group, season, std_estimate, p_value, date_start),
+  fauna_raw %>% select(label, group, season, std_estimate, p_value, date_start)
+)
+
+all_global <- all_raw %>%
+  group_by(label, group) %>%
+  summarise(
+    mean_b  = mean(std_estimate, na.rm = TRUE),
+    sd_b    = sd(std_estimate,   na.rm = TRUE),
+    pct_sig = mean(p_value < 0.05, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    sig_label = paste0(round(pct_sig, 0), "% sig."),
+    direction = if_else(mean_b > 0, "#c1603a", "#3d5a3e"),
+    linetype  = case_when(
+      group == "Microclimate"    ~ "dotted",
+      group == "Root growth"     ~ "dashed",
+      group == "Faunal activity" ~ "solid"
+    )
+  ) %>%
+  mutate(group = factor(group,
+                        levels = c("Microclimate", "Root growth",
+                                   "Faunal activity"))) %>%
+  arrange(group, mean_b) %>%
+  mutate(label = fct_inorder(label))
+
+mc_labels    <- all_global %>% filter(group == "Microclimate")    %>% pull(label) %>% as.character()
+root_labels  <- all_global %>% filter(group == "Root growth")     %>% pull(label) %>% as.character()
+fauna_labels <- all_global %>% filter(group == "Faunal activity") %>% pull(label) %>% as.character()
+fauna_labels_ordered <- c("all_taxa", setdiff(fauna_labels, "all_taxa"))
+table_levels   <- c(mc_labels, root_labels, fauna_labels_ordered)
+edaphic_labels <- c(mc_labels, root_labels, "all_taxa")
+
+all_season <- all_raw %>%
+  group_by(label, group, season) %>%
+  summarise(
+    mean_b  = mean(std_estimate, na.rm = TRUE),
+    sd_b    = sd(std_estimate,   na.rm = TRUE),
+    pct_sig = mean(p_value < 0.05, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    b_label   = paste0(round(mean_b, 2), " \u00b1 ", round(sd_b, 2)),
+    sig_label = paste0(round(pct_sig, 0), "%")
+  )
+
+label_colors <- deframe(select(all_global, label, direction))
+```
+
+```{r fig-landuse}
+#| label: fig-landuse
+#| fig-cap: >
+#|   Direct effect of land-use management on edaphic conditions and faunal
+#|   activity (standardised β per variable or taxon, averaged across all rolling
+#|   windows). Each line connects the unmanaged baseline (A = 0 by definition)
+#|   to the mean coefficient in the managed system (C); 
+#|   Line type encodes the response tier: dotted = microclimate
+#|   (β₁, β₂); dashed = root growth (β₅); solid = faunal taxa (β₁₁).
+#|   Labels report the proportion of windows where the effect was significant
+#|   (p < 0.05). Terracotta = increased under management; olive = reduced.
+#| fig-width: 7
+#| fig-height: 6
+
+p_landuse <- ggplot() +
+
+  geom_hline(yintercept = 0, color = "grey30", linewidth = 0.25,
+             linetype = "dashed") +
+
+  geom_segment(
+    data = all_global,
+    aes(x = 0, xend = 1, y = 0, yend = mean_b,
+        color    = label,
+        linetype = linetype),
+    linewidth = 0.55, lineend = "round",
+    show.legend = FALSE
+  ) +
+
+  geom_point(data = all_global,
+             aes(x = 0, y = 0,      color = label), size = 1.1, shape = 16) +
+  geom_point(data = all_global,
+             aes(x = 1, y = mean_b, color = label), size = 1.1, shape = 16) +
+
+  ggrepel::geom_text_repel(
+    data = all_global,
+    aes(x = 1, y = mean_b, color = label,
+        label    = paste0(label, "  ", sig_label),
+        fontface = if_else(label %in% edaphic_labels, "bold", "plain")),
+    nudge_x = 0.08, hjust = 0, size = 2.1,
+    segment.size = 0.2, segment.color = "grey70",
+    direction = "y", box.padding = 0.12,
+    show.legend = FALSE
+  ) +
+
+  scale_color_manual(values = label_colors, guide = "none") +
+  scale_linetype_identity() +
+  scale_x_continuous(
+    breaks = c(0, 1),
+    labels = c("Unmanaged (A)", "Managed (C)"),
+    expand = expansion(mult = c(0.12, 0.32))
+  ) +
+  labs(x = NULL,
+       y = "Direct land-use effect (standardised \u03b2)") +
+  theme_sem() +
+  theme(panel.grid.major.x = element_blank(),
+        axis.ticks.x       = element_blank())
+
+p_landuse
+
+tiff("../output/Fig1b_landuse_effects.tiff",
+     width = 12, height = 14, units = "cm", res = 300)
+print(p_landuse)
+invisible(dev.off())
+```
+
+```{r tbl-landuse}
+#| label: tbl-landuse
+#| tbl-cap: >
+#|   Seasonal breakdown of direct land-use effects (mean β ± SD across rolling
+#|   windows) on microclimate (β₁, β₂), root growth (β₅), and faunal activity
+#|   per taxon (β₁₁). % sig = proportion of windows with p < 0.05.
+#|   Terracotta = increased under management; olive = reduced.
+
+all_wide <- all_season %>%
+  select(label, group, season, b_label, sig_label) %>%
+  pivot_wider(names_from  = season,
+              values_from = c(b_label, sig_label),
+              names_glue  = "{season}_{.value}") %>%
+  mutate(label = factor(label, levels = table_levels)) %>%
+  arrange(label)
+
+col_order <- as.vector(rbind(paste0(season_order, "_b_label"),
+                             paste0(season_order, "_sig_label")))
+
+display_tbl <- all_wide %>%
+  select(Label = label, all_of(col_order))
+
+col_names     <- c("Variable / Taxon",
+                   rep(c("Mean \u03b2 \u00b1 SD", "% sig."),
+                       length(season_order)))
+bold_rows     <- which(all_wide$label %in% edaphic_labels)
+b_positions   <- which(str_detect(names(display_tbl), "_b_label$"))
+sig_positions <- which(str_detect(names(display_tbl), "_sig_label$"))
+
+n_mc    <- length(mc_labels)
+n_root  <- length(root_labels)
+n_fauna <- nrow(all_wide) - n_mc - n_root
+
+all_means <- all_season %>%
+  select(label, season, mean_b) %>%
+  pivot_wider(names_from  = season,
+              values_from = mean_b,
+              names_glue  = "{season}_mean_b") %>%
+  mutate(label = factor(label, levels = table_levels)) %>%
+  arrange(label)
+
+tbl <- display_tbl %>%
+  kable(col.names = col_names) %>%
+  kable_styling(bootstrap_options = c("hover", "condensed"),
+                full_width = TRUE, font_size = 11) %>%
+  add_header_above(setNames(c(1L, rep(2L, length(season_order))),
+                            c(" ", season_order)),
+                   bold = TRUE, background = "#ebebeb") %>%
+  row_spec(0,         bold = TRUE, background = "#d8d8d8") %>%
+  row_spec(bold_rows, bold = TRUE) %>%
+  pack_rows("Microclimate (\u03b2\u2081, \u03b2\u2082)",
+            1, n_mc,
+            label_row_css = "background-color:#e8e8e8; font-weight:bold;") %>%
+  pack_rows("Root growth (\u03b2\u2085)",
+            n_mc + 1, n_mc + n_root,
+            label_row_css = "background-color:#eeeeee; font-weight:bold;") %>%
+  pack_rows("Faunal activity (\u03b2\u2081\u2081)",
+            n_mc + n_root + 1, n_mc + n_root + n_fauna,
+            label_row_css = "background-color:#f4f4f4; font-weight:bold;") %>%
+  reduce(seq_along(b_positions), function(t, i) {
+    vals <- all_means[[paste0(season_order[i], "_mean_b")]]
+    column_spec(t, b_positions[i], bold = TRUE,
+                color = if_else(vals > 0, "#c1603a",
+                        if_else(vals < 0, "#3d5a3e", "grey55")))
+  }, .init = .)
+
+tbl <- reduce(sig_positions, function(t, col_i) {
+  column_spec(t, col_i, italic = TRUE, color = "grey45")
+}, .init = tbl)
+
+tbl
+```
+
+---
+
+## 2. H2 — Environmental forcing pathways across management systems
+
+> **Do microclimate and root dynamics drive fauna through different causal
+> pathways, and does the relative weight of these pathways differ between
+> management systems?**
+
+This section examines the five directed paths in the SEM (two microclimate →
+fauna paths, two microclimate → root paths, and root → fauna) and contrasts
+their coefficient distributions between A and C. The raincloud plots give an
+overview of each path's typical strength and sign across all windows; the
+Wilcoxon stars indicate whether each distribution is meaningfully shifted
+from zero. The taxon-level boxplots then test whether system-level contrasts
+are consistent across taxonomic groups or driven by a subset — a distinction
+that matters for interpreting whether the management effect is a general
+community-level signal or taxon-specific.
+
+```{r}
+#| label: prep-sig-summary
+
+# Significance rates computed separately per system:
+#   A: p_value tests slope A ≠ 0
+#   C: interaction_p_value tests slope C ≠ slope A
+# These are different hypotheses — the asymmetry is noted in captions.
+sig_summary <- data_long %>%
+  filter(!is.na(path_id)) %>%
   group_by(path_id, position) %>%
   summarise(
     n_total  = n(),
-    n_sig    = sum(p_value < 0.05, na.rm = TRUE),
-    prop_sig = (n_sig / n_total) * 100,
+    n_sig    = if_else(
+      first(position) == "A",
+      sum(p_value < 0.05, na.rm = TRUE),
+      sum(!is.na(interaction_p_value) & interaction_p_value < 0.05, na.rm = TRUE)
+    ),
+    prop_sig = n_sig / n_total * 100,
     .groups  = "drop"
   ) %>%
-  mutate(label = paste0("Sig. rate:\n ", round(prop_sig, 1), "%"))
+  mutate(sig_label = paste0("Sig. rate: \n", round(prop_sig, 0), "%"))
+
+sig_stars <- function(p) {
+  case_when(
+    p < 0.001 ~ "***",
+    p < 0.01  ~ "**",
+    p < 0.05  ~ "*",
+    TRUE      ~ "ns"
+  )
+}
+
+# One-sample Wilcoxon test: is β distribution shifted from zero?
+# Robust to heavy tails typical of rolling-window series.
+wilcox_path <- data_plot %>%
+  filter(!is.na(beta)) %>%
+  group_by(path_id, position) %>%
+  summarise(
+    p_wilcox    = tryCatch(
+      wilcox.test(beta, mu = 0, exact = FALSE)$p.value,
+      error = function(e) NA_real_
+    ),
+    median_beta = median(beta, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(stars  = sig_stars(p_wilcox),
+         y_star = Inf)
+
+wilcox_taxa <- data_plot %>%
+  filter(!is.na(beta), taxon != "all_taxa", response == "fauna") %>%
+  group_by(path_id, position, taxon) %>%
+  summarise(
+    p_wilcox    = tryCatch(
+      wilcox.test(beta, mu = 0, exact = FALSE)$p.value,
+      error = function(e) NA_real_
+    ),
+    median_beta = median(beta, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(stars = sig_stars(p_wilcox))
 ```
 
-### 2.1 Path coefficient distributions (significant paths only)
-
-```{r plot-estimates}
+```{r}
+#| label: fig-path-distributions
 #| fig-cap: >
-#|   Raincloud plots of standardised SEM path coefficients (β) across rolling
-#|   time windows. Only windows with p < 0.05 are shown. Dots represent
-#|   individual window estimates (hexagonal binning); the shaded half-eye shows
-#|   the kernel density; the box summarises the IQR and median.
-#|   'Sig. rate' = proportion of all windows (including non-significant) yielding
-#|   p < 0.05 for that path. Outliers beyond Q1 ± 1.5 × IQR are excluded.
-#| fig-alt: >
-#|   Faceted raincloud plots showing the distribution of path coefficients
-#|   for five causal pathways, split by management position.
-#| fig-width:  14
+#|   Distributions of standardised path coefficients (β) per causal path and
+#|   management system across all rolling windows. The shaded half-eye shows
+#|   the kernel density; the box spans the IQR with a median line; dots below
+#|   show individual window estimates (hex layout). Extreme values (beyond
+#|   Q1 ± 1.5×IQR) excluded. Top-right: proportion of windows where the path
+#|   was significant (A: main effect p < 0.05; C: interaction p < 0.05 —
+#|   note these test different hypotheses). Bottom-right: Wilcoxon signed-rank
+#|   test against zero (*** p < 0.001, ** p < 0.01, * p < 0.05, ns).
+#| fig-width: 7
 #| fig-height: 5
 
-p_estimates <- data_plot %>%
-  #filter(p_value < 0.05) %>%
-  ggplot(aes(std_estimate, fill = path_id)) +
-  geom_vline(xintercept = 0, color = SEM_COLORS$zero_line, linewidth = 0.3) +
-  stat_dots(
-    side = "top", justification = -0.1,
-    binwidth = unit(c(0.001, 0.02), "npc"),
-    color = "darkgrey", fill = "darkgrey", layout = "hex"
+p_rain <- data_plot %>%
+  ggplot(aes(beta, fill = path_id, color = path_id)) +
+
+  geom_vline(xintercept = 0, color = "grey30", linewidth = 0.35,
+             linetype = "dashed") +
+
+  stat_halfeye(
+    aes(fill = path_id),
+    adjust = 1.2, width = 0.55, justification = -0.08,
+    .width = 0, point_colour = NA, alpha = 0.75
   ) +
-  stat_halfeye(adjust = 1, width = 0.5, justification = -0.1, .width = 0, alpha = 0.9) +
-  geom_boxplot(width = 0.12, outliers = FALSE) +
-  scale_fill_manual(values = path_palette) +
+
+  geom_boxplot(
+    width = 0.13, outliers = FALSE, linewidth = 0.3,
+    color = "grey20", fill = "white", alpha = 0.6
+  ) +
+
+  stat_dots(
+    side = "bottom", justification = 1.08,
+    binwidth = unit(c(0.002, 0.015), "npc"),
+    color = NA, alpha = 0.55, layout = "hex", dotsize = 0.8
+  ) +
+
+  geom_text(
+    data        = sig_summary,
+    aes(x = Inf, y = Inf, label = sig_label),
+    inherit.aes = FALSE,
+    hjust = 1.12, vjust = 1.3, size = 2.6,
+    fontface = "italic", color = "grey35"
+  ) +
+
+  geom_text(
+    data        = wilcox_path,
+    aes(x = Inf, y = -Inf, label = stars),
+    inherit.aes = FALSE,
+    hjust = 1.15, vjust = -0.6,
+    size = 3.2, fontface = "bold",
+    color = if_else(wilcox_path$stars == "ns", "grey55", "grey15")
+  ) +
+
+  scale_fill_manual(values  = path_palette) +
+  scale_color_manual(values = path_palette) +
+  guides(fill = "none", color = "none") +
+
   facet_grid(
     position ~ path_id,
     labeller = labeller(
       position = position_labeller,
-      path_id  = label_wrap_gen(width = 15)
+      path_id  = label_wrap_gen(16)
     )
   ) +
-  geom_text(
-    data        = pval_summary,
-    aes(x = Inf, y = Inf, label = label),
-    inherit.aes = FALSE,
-    hjust = 1.1, vjust = 1.5, size = 3, fontface = "italic"
-  ) +
-  guides(fill = "none", color = "none") +
+
   labs(
-    title    = "Distribution of significant environmental forcing effects",
-    subtitle = "Standardised path coefficients (p < 0.05) across management types and causal paths",
-    x        = "Standardised path coefficient (β)",
-    y        = NULL
-  ) +
-  theme_sem()
-
-p_estimates
-```
-
-### 2.2 Model explanatory power (conditional R²)
-
-```{r plot-r2}
-#| fig-cap: >
-#|   Distribution of conditional R² values across rolling windows for the root
-#|   and fauna sub-models, split by management position. Conditional R² captures
-#|   variance explained by both fixed effects (microclimate, root) and random
-#|   effects (orientation / depth). Higher values indicate that the full model
-#|   structure, including spatial grouping, accounts for a large fraction of
-#|   observed variability.
-#| fig-alt: >
-#|   Faceted half-eye plots showing conditional R² distributions for root and
-#|   fauna models in unmanaged and managed systems.
-#| fig-width:  6
-#| fig-height: 5
-
-p_r2 <- data_plot %>%
-  mutate(response = factor(response, levels = c("root", "fauna"))) %>%
-  ggplot(aes(r2_cond, fill = response)) +
-  stat_halfeye(adjust = 1, width = 0.5, justification = -0.1, .width = 0, alpha = 0.6) +
-  geom_boxplot(width = 0.12, outliers = FALSE) +
-  scale_fill_manual(values = response_palette) +
-  facet_grid(
-    position ~ response,
-    labeller = labeller(position = position_labeller),
-    scales   = "free"
-  ) +
-  guides(fill = "none", color = "none") +
-  labs(
-    title    = "Model explanatory power",
-    subtitle = "Conditional R² across rolling windows",
-    x        = expression(R[conditional]^2),
-    y        = NULL
+    x = expression("Standardised path coefficient"~(beta)),
+    y = NULL
   ) +
   theme_sem() +
   theme(
-    #strip.text.y       = element_blank(),
-    strip.background.y = element_blank()
+    panel.spacing.x = unit(4, "pt"),
+    panel.spacing.y = unit(6, "pt"),
+    axis.text.y     = element_blank(),
+    axis.ticks.y    = element_blank()
   )
 
-p_r2
-```
+p_rain
 
-```{r export-fig1}
-#| include: false   # Suppress output in HTML; figure is saved to disk only
-
-tiff("../output/1.sem_results_distribution.tiff",
-     width = 2800, height = 1300, res = 200)
-
-(p_r2 | p_estimates) +
-  plot_layout(widths = c(1, 3)) +
-  plot_annotation(
-    title = "Comparing the relative influence of soil microclimate and root dynamics under different management intensities",
-    theme = theme(plot.title = element_text(size = 12, face = "bold"))
-  )
-
+tiff("../output/Fig2_path_distributions.tiff",
+     width = 15, height = 13, units = "cm", res = 300)
+print(p_rain)
 invisible(dev.off())
 ```
 
-------------------------------------------------------------------------
-
-## 3. Deterministic vs. stochastic processes
-
-> Are observed causal effects statistically distinguishable from random noise?
-
-A path coefficient is considered **deterministic** (ecologically meaningful) if its observed value substantially exceeds what would be expected under random permutation. This is assessed by a z-score relative to the null distribution:
-
-$$z = \frac{\hat{\beta}_{\text{obs}} - \mu_{\text{null}}}{\sigma_{\text{null}}}$$
-
-Values beyond \|z\| = 1.96 indicate that the observed effect exceeds the 95 % null interval.
-
-```{r z-score-prep}
-# Z-score: number of null SDs separating the observed estimate from the null mean
-# Filter for observed results and calculate Z-score using existing null columns
-zscore_results <- data_sem_results %>%
-  filter(type == "observed", p_value < 0.05) %>%
-  mutate(
-    # Use the columns visible in your View() output
-    z_score = (std_estimate - null_mean_estimate) / null_sd_estimate
-  ) %>%
-  # Corrected Outlier Filter: Use 0.75 for the upper bound
-  filter(
-    z_score >= quantile(z_score, 0.25, na.rm = TRUE) - 3 * IQR(z_score, na.rm = TRUE),
-    z_score <= quantile(z_score, 0.75, na.rm = TRUE) + 3 * IQR(z_score, na.rm = TRUE)
-  )
-```
-
-```{r plot-zscore-histogram}
+```{r}
+#| label: fig-path-by-taxon
 #| fig-cap: >
-#|   Histogram of z-scores for all observed path coefficients (p < 0.05)
-#|   relative to the permutation null distribution. Dashed red lines mark
-#|   the 95 % null interval (|z| = 1.96). Coefficients outside this interval
-#|   cannot be attributed to chance alone.
-#| fig-alt: >
-#|   Histogram of z-scores with reference lines at ±1.96.
-#| fig-width:  6
-#| fig-height: 4
-
-zscore_results %>%
-  ggplot(aes(z_score)) +
-  geom_histogram(bins = 40, fill = SEM_COLORS$position[["A"]], alpha = 0.7) +
-  geom_vline(xintercept = c(-1.96, 1.96),
-             linetype = "dashed", color = SEM_COLORS$null_line) +
-  labs(
-    title    = "Z-score distribution vs. permutation null",
-    subtitle = "Dashed lines: 95 % null interval (|z| = 1.96)",
-    x        = "Z-score",
-    y        = "Count"
-  ) +
-  theme_sem()
-```
-
-```{r plot-zscore-by-path}
-#| fig-cap: >
-#|   Boxplots of z-scores by management position and causal path. Dashed lines
-#|   mark |z| = 1.96. Paths whose median z-score consistently exceeds this
-#|   threshold exhibit non-random, ecologically meaningful environmental forcing.
-#| fig-alt: >
-#|   Faceted boxplots of z-scores split by management position and causal path.
-#| fig-width:  12
-#| fig-height: 4
-
-zscore_results %>%
-  # Ensure path_id is still a factor for consistent ordering
-  mutate(path_id = factor(path_id, levels = path_levels$path_id)) %>% 
-  ggplot(aes(z_score, position, fill = position)) +
-  geom_vline(xintercept = c(-1.96, 1.96), 
-             linetype = "dashed", color = SEM_COLORS$null_line) +
-  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # 'outliers = FALSE' is deprecated in newer ggplot2
-  scale_fill_manual(values = position_palette) +
-  # Use label_wrap_gen to prevent long path names from overlapping
-  facet_grid(. ~ path_id, scales = "free", labeller = label_wrap_gen(width = 15)) +
-  labs(
-    title    = "Z-scores by management position and causal path",
-    subtitle = "Each box aggregates all significant windows for that path",
-    x        = "Z-score",
-    y        = "Position"
-  ) +
-  theme_sem() +
-  theme(legend.position = "none")
-```
-
-```{r plot-zscore-over-time}
-#| fig-cap: >
-#|   Monthly evolution of z-scores, split by causal path and management
-#|   position. Each box represents the distribution of window-level z-scores
-#|   within a calendar month. Dashed lines mark |z| = 1.96. Temporal patterns
-#|   in z-score magnitude may reveal seasonally varying ecological forcing.
-#| fig-alt: >
-#|   Faceted boxplots of monthly z-score distributions, coloured by position.
-#| fig-width:  12
-#| fig-height: 8
-
-zscore_results %>%
-  mutate(
-    path_id = str_replace(path_id, "microclimate_index_1", microclimate_index[1]),
-    path_id = str_replace(path_id, "microclimate_index_2", microclimate_index[2])
-  ) %>%
-  ggplot(aes(
-    x    = as.factor(floor_date(as.Date(date_start), unit = "month")),
-    y    = z_score,
-    fill = position
-  )) +
-  geom_hline(yintercept = c(-1.96, 1.96),
-             linetype = "dashed", color = SEM_COLORS$null_line) +
-  geom_boxplot(alpha = 0.5, position = position_dodge()) +
-  scale_fill_manual(values = position_palette) +
-  facet_grid(path_id ~ ., scales = "free",
-                 labeller = labeller(
-      path_id  = label_wrap_gen(width = 15))) +
-  labs(
-    title    = "Monthly evolution of z-scores",
-    subtitle = "By causal path and management position",
-    x        = "Month",
-    y        = "Z-score",
-    fill     = "Position"
-  ) +
-  theme_sem(legend_pos = "bottom") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-> 💡 **Open questions:**
->
-> -   Is CV the best indicator of temporal stability, or should we consider alternatives (e.g. local entropy, regime shift detection)?
-> -   Should only pre-filtered significant relationships be included in the CV computation?
-> -   Could abrupt transitions in z-score time series reveal ecological regime shifts?
-
-------------------------------------------------------------------------
-
-## 4. Temporal stability of causal paths
-
-> Do the strengths of causal paths fluctuate over time, or remain steady?
-
-The **Coefficient of Variation (CV)** of standardised path coefficients across rolling windows distinguishes:
-
--   **Low CV** → "steady" forcing: the environment has a predictable, consistent impact
--   **High CV** → "pulsed" or unstable forcing: the relationship fluctuates over time
-
-Comparing CV across management positions tests whether human intensification destabilises the ecosystem by replacing natural, steady rhythms with erratic biological responses.
-
-```{r cv-analysis}
-#| fig-cap: >
-#|   Lollipop chart of the temporal coefficient of variation (CV) of
-#|   standardised path coefficients, stratified by management position.
-#|   CV = (SD / (|mean| + 0.01)) × 100; the small constant avoids division by
-#|   zero when the mean coefficient is near zero. Only paths with at least 10
-#|   valid windows are shown. Higher CV indicates more temporally unstable
-#|   (pulsed) ecological forcing.
-#| fig-alt: >
-#|   Horizontal lollipop chart comparing CV of path coefficients between
-#|   unmanaged and managed systems.
-#| fig-width:  8
+#|   Path coefficients stratified by taxonomic group and causal path. Each
+#|   panel shows the IQR (box) and full range (whiskers) across rolling windows.
+#|   Coloured by causal path; A = outline only (alpha 0.2), C = filled
+#|   (alpha 0.75). Stars: Wilcoxon test of β vs 0 per position × taxon
+#|   (*** p < 0.001, ** p < 0.01, * p < 0.05, ns). Consistent patterns
+#|   across taxa support a community-level interpretation; divergent patterns
+#|   indicate taxon-specific responses.
+#| fig-width: 7
 #| fig-height: 5
 
-cv_global <- data_sem_results %>%
-  filter(taxon != "null model") %>%
-  group_by(position, path_id) %>%
-  summarise(
-    n_windows = n(),
-    mean_beta = mean(std_estimate, na.rm = TRUE),
-    sd_beta   = sd(std_estimate,   na.rm = TRUE),
-    # +0.01 avoids division by zero when mean_beta ≈ 0
-    cv_beta   = (sd_beta / (abs(mean_beta) + 0.01)) * 100,
-    .groups   = "drop"
-  ) %>%
-  filter(n_windows >= 10)
+p_taxa <- data_plot %>%
+  filter(taxon != "all_taxa", response == "fauna") %>%
+  ggplot(aes(x = position, y = beta)) +
 
-ggplot(cv_global,
-       aes(x = reorder(path_id, cv_beta), y = cv_beta, color = position)) +
-  geom_linerange(
-    aes(ymin = 0, ymax = cv_beta),
-    position  = position_dodge(width = 0.6),
-    linewidth = 1, alpha = 0.4
+  geom_hline(yintercept = 0, color = "grey30", linewidth = 0.3,
+             linetype = "dashed") +
+
+  geom_boxplot(
+    aes(fill = path_id, alpha = position),
+    outliers  = FALSE,
+    linewidth = 0.1,
+    color     = "grey25",
+    width     = 0.9
   ) +
-  geom_point(position = position_dodge(width = 0.6), size = 3) +
-  coord_flip() +
-  scale_color_manual(values = position_palette) +
+
+  geom_text(
+    data        = wilcox_taxa,
+    aes(x = position, y = Inf, label = stars),
+    inherit.aes = FALSE,
+    vjust = 1.4, hjust = 0.3, size = 2, fontface = "bold",
+    color = if_else(wilcox_taxa$stars == "ns", "grey65", "grey15")
+  ) +
+
+  scale_fill_manual(values = path_palette, guide = "none") +
+  scale_alpha_manual(
+    values = c(A = 0.2, C = 0.75),
+    labels = position_labeller,
+    name   = "System"
+  ) +
+  scale_x_discrete(labels = c(A = "A", C = "C")) +
+
+  facet_grid(
+    path_id  ~ taxon,
+    scales   = "free_y",
+    labeller = labeller(path_id = label_wrap_gen(16))
+  ) +
+
   labs(
-    title    = "Temporal stability of causal forcing rules",
-    subtitle = "Higher CV indicates pulsed or unstable forcing dynamics",
-    x        = "SEM pathway",
-    y        = "Coefficient of variation (%)",
-    color    = "Management position"
+    x = "Management system",
+    y = expression("Standardised path coefficient"~(beta))
   ) +
+  guides(fill = "none", alpha = "none") +
   theme_sem(legend_pos = "bottom") +
   theme(
-    panel.grid.major.y = element_blank(),
-    axis.text.y        = element_text(size = 10)
+    panel.spacing.x = unit(2, "pt"),
+    panel.spacing.y = unit(2, "pt"),
+    axis.text.x     = element_text(size = 7.5)
   )
+
+p_taxa
+
+tiff("../output/Fig2b_path_by_taxon.tiff",
+     width = 15, height = 13, units = "cm", res = 300)
+print(p_taxa)
+invisible(dev.off())
 ```
 
-> 💡 **Open questions:**
->
-> -   Generate CV stratified by additional factors (season, depth) to enable formal comparison tests?
-> -   Should only pre-filtered significant relationships feed into the CV computation?
-> -   Could identifying abrupt temporal transitions complement the CV approach?
+---
 
-------------------------------------------------------------------------
+## 3. H3 — Temporal stability and synchrony of causal rules
 
-## 5. Spatial synchrony of forcing
+> **Are the causal links governing faunal activity stable over time, and do
+> both systems respond to environmental cues in a synchronised manner?**
 
-> Are the same causal rules operating simultaneously in both management zones?
->
-> When a microclimate variable becomes a strong driver in the unmanaged zone (A), does it simultaneously become a strong driver in the managed zone (C)?
+Rather than a single point estimate per path, we obtain a time series of β values whose dispersion (CV) measures temporal instability, and whose correlation between A and C (synchrony r) measures how similarly the two systems respond to the same
+environmental context. Low synchrony on a given path could reflect that management has decoupled that particular causal rule from the shared regional signal — the two systems are experiencing the same climate but translating it into different biological outcomes.
 
--   **High correlation (r ≈ 1) :** management has not altered the timing of the causal rule — forcing remains governed by regional climate.
--   **Low / no correlation (r ≈ 0) :** management has decoupled the site from the natural rhythm — the rules operating in the managed zone are now independent of the unmanaged ones.
+The figure shows the raw temporal trajectories of β; the table summarises
+instability and synchrony per path and season, allowing seasonal contrasts
+to be read directly.
 
-### 5.1 Global synchrony index
-
-```{r sync-global}
+```{r}
+#| label: fig-temporal-paths
 #| fig-cap: >
-#|   Lollipop chart of the global synchrony index (Pearson r) between
-#|   standardised path coefficients in the unmanaged (A) and managed (C)
-#|   positions across all time windows. Blue encodes positive synchrony
-#|   (coordinated forcing); red encodes antagonistic dynamics. Each panel
-#|   shows results for one invertebrate taxon.
-#| fig-alt: >
-#|   Horizontal lollipop chart of synchrony r values per pathway and taxon,
-#|   coloured by synchrony direction.
-#| fig-width:  10
+#|   Temporal dynamics of standardised path coefficients (β) per causal path
+#|   across the study period. Semi-transparent points = individual window
+#|   estimates; lines = LOESS trends (span = 0.25); ribbons = 95% pointwise
+#|   confidence intervals. The light grey band marks |β| < 0.2 (approximate
+#|   null zone). Seasonal backgrounds as in Fig. 1. Wide ribbons indicate
+#|   high temporal variability; diverging A/C trends indicate management-driven
+#|   decoupling of that causal rule.
+#| fig-width: 7
 #| fig-height: 5
 
-sync_results <- data_sem_results %>%
-  select(date_start, position, taxon, path_id, std_estimate) %>% 
-  pivot_wider(names_from = position, values_from = std_estimate) %>%
-  group_by(path_id, taxon) %>%
-  summarise(
-    r_A_vs_C = cor(A, C, use = "pairwise.complete.obs"),
-    n_obs    = n(),
-    .groups  = "drop"
-  ) %>%
-  filter(!is.na(r_A_vs_C))
+date_range_sem <- range(data_plot$date_start, na.rm = TRUE)
 
-ggplot(sync_results,
-       aes(x = reorder(path_id, r_A_vs_C), y = r_A_vs_C)) +
-  geom_hline(yintercept = 0,
-             linetype = "dotted", color = SEM_COLORS$sync_anchor, linewidth = 0.5) +
-  geom_segment(
-    aes(xend = reorder(path_id, r_A_vs_C), y = 0, yend = r_A_vs_C),
-    color = SEM_COLORS$segment, linewidth = 1
+x_breaks_sem <- seq(
+  floor_date(date_range_sem[1], "month"),
+  ceiling_date(date_range_sem[2], "month"),
+  by = "3 months"
+)
+
+p_temporal <- ggplot() +
+
+  make_season_layers(date_range_sem, label_size = 2.0) +
+
+  annotate("rect",
+           xmin = -Inf, xmax = Inf, ymin = -0.2, ymax = 0.2,
+           fill = "grey50", alpha = 0.08) +
+  geom_hline(yintercept = 0, color = "grey30", linewidth = 0.3,
+             linetype = "solid") +
+
+  geom_point(
+    data  = data_plot,
+    aes(date_start, beta, color = position),
+    alpha = 0.18, size = 0.15, shape = 16
   ) +
-  geom_point(aes(color = r_A_vs_C), size = 5) +
-  scale_color_gradient2(
-    low      = SEM_COLORS$sync_low,
-    mid      = SEM_COLORS$sync_mid,
-    high     = SEM_COLORS$sync_high,
-    midpoint = 0
+
+  geom_smooth(
+    data      = data_plot,
+    aes(date_start, beta, color = position, fill = position),
+    method    = "loess", span = 0.25,
+    se        = TRUE, linewidth = 0.7, alpha = 0.12
   ) +
-  coord_flip() +
-  facet_wrap(~ taxon) +
+
+  scale_color_manual(values = position_palette, labels = position_labeller,
+                     name = NULL) +
+  scale_fill_manual(values  = position_palette, labels = position_labeller,
+                    name = NULL) +
+  scale_x_date(
+    breaks      = x_breaks_sem,
+    date_labels = "%b\n%y",
+    expand      = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_y_continuous(
+    limits = c(-1.1, 1.1),
+    breaks = seq(-1, 1, 0.5)
+  ) +
+
+  facet_wrap(
+    ~ path_id,
+    ncol     = 2,
+    labeller = labeller(path_id = label_wrap_gen(22))
+  ) +
+
   labs(
-    title = "Ecological decoupling: global synchrony of path coefficients (A vs. C)",
-    x     = "Forcing pathway",
-    y     = "Synchrony index (r)",
-    color = "Synchrony"
-  ) +
-  theme_sem(legend_pos = "right") +
-  theme(
-    panel.grid.major.y = element_blank(),
-    axis.text.y        = element_text(face = "bold")
-  )
-```
-
-### 5.2 Rolling synchrony over time
-
-```{r sync-rolling}
-#| fig-cap: >
-#|   Temporal dynamics of the rolling synchrony index between management
-#|   positions A and C. Each line represents one invertebrate taxon; the curve
-#|   is a LOESS smoother (span = 0.2) to reduce window-to-window noise. The rug
-#|   at the bottom of each panel indicates data density over time. Periods of
-#|   negative r indicate that the same causal pathway operates in opposing
-#|   directions in the two management zones simultaneously.
-#| fig-alt: >
-#|   Faceted line plots of rolling Pearson r over time, one panel per causal
-#|   pathway, coloured by taxon.
-#| fig-width:  12
-#| fig-height: 7
-
-#' Compute rolling Pearson correlation between positions A and C
-#'
-#' @param df          Dataframe with columns `day`, `A`, `C`.
-#' @param window_size Integer. Rolling window width (number of observations).
-#' @return Input dataframe with an added `roll_cor` column.
-calculate_rolling_sync <- function(df, window_size = 21) {
-  df %>%
-    arrange(date_start) %>%
-    mutate(roll_cor = slider::slide2_dbl(
-      A, C,
-      ~ cor(.x, .y, use = "pairwise.complete.obs"),
-      .before = window_size
-    ))
-}
-
-# Wide-format: A and C as separate columns for correlation computation
-position_sync_binary <- data_sem_results %>%
-  mutate(
-    path_id = paste(predictor, "->", response),
-    path_id = str_replace(path_id, "microclimate_index_1", microclimate_index[1]),
-    path_id = str_replace(path_id, "microclimate_index_2", microclimate_index[2])
-  ) %>%
-  select(date_start, position, taxon, path_id, estimate) %>%
-  pivot_wider(names_from = position, values_from = estimate)
-
-# Apply rolling correlation within each path × taxon group
-rolling_sync_data <- position_sync_binary %>%
-  group_by(path_id, taxon) %>%
-  nest() %>%
-  mutate(rolling_cor = map(data, calculate_rolling_sync)) %>%
-  select(-data) %>%
-  unnest(rolling_cor)
-
-rolling_sync_data %>%
-  filter(!is.na(roll_cor), !path_id %in% c('temp_soil_max -> root','hum_soil_max -> root' )) %>%
-  ggplot(aes(x = date_start, y = roll_cor, group = taxon, color = taxon)) +
-  geom_hline(yintercept = 0,
-             linetype = "dashed", color = SEM_COLORS$null_line, alpha = 0.5) +
-  # LOESS smoothing (span = 0.2) reduces window-to-window noise
-  geom_smooth(method = "loess", span = 0.2, se = FALSE, linewidth = 1) +
-  geom_rug(alpha = 0.1) +
-  facet_grid(path_id~. , scales = "free") +
-  scale_color_brewer(palette = "Set2") +
-  labs(
-    title    = "Temporal dynamics of ecological synchrony (A vs. C)",
-    subtitle = "Positive r: coordinated forcing | Negative r: antagonistic forcing",
-    x        = "Date",
-    y        = "Rolling correlation (r)",
-    color    = "Taxon"
+    x = NULL,
+    y = expression("Standardised path coefficient"~(beta))
   ) +
   theme_sem(legend_pos = "bottom") +
   theme(
-    strip.text  = element_text(size = 7, face = "bold"),
-    axis.text.x = element_blank()
+    panel.spacing.x   = unit(10, "pt"),
+    panel.spacing.y   = unit(8, "pt"),
+    axis.text.x       = element_text(size = 7.5, lineheight = 0.85,
+                                     hjust = 0.5),
+    legend.direction  = "horizontal"
   )
+
+p_temporal
+
+tiff("../output/Fig3_temporal_dynamics.tiff",
+     width = 15, height = 13, units = "cm", res = 300)
+print(p_temporal)
+invisible(dev.off())
+```
+
+```{r}
+#| label: tbl-cv-beta
+#| tbl-cap: >
+#|   Temporal instability and cross-system synchrony of path coefficients per
+#|   causal path and period. Mean β ± SD characterises typical effect size and
+#|   dispersion within each system. Δ CV = CV(C) − CV(A) in percentage points:
+#|   positive values indicate greater temporal instability of that causal rule
+#|   under management. Synchrony r: Pearson correlation between the β_A and
+#|   β_C time series within each period; r ≈ 1 = both systems respond to the
+#|   same environmental timing; r ≈ 0 = management-driven decoupling.
+
+seasonal_stats <- data_long %>%
+  filter(!is.na(path_id), !is.na(beta)) %>%
+  group_by(path_id, season) %>%
+  summarise(
+    mean_A  = mean(beta[position == "A"], na.rm = TRUE),
+    sd_A    = sd(beta[position == "A"],   na.rm = TRUE),
+    mean_C  = mean(beta[position == "C"], na.rm = TRUE),
+    sd_C    = sd(beta[position == "C"],   na.rm = TRUE),
+    cv_A    = (sd_A  / abs(mean_A)) * 100,
+    cv_C    = (sd_C  / abs(mean_C)) * 100,
+    r_sync  = cor(
+      beta[position == "A"],
+      beta[position == "C"],
+      use = "pairwise.complete.obs"
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(delta_cv = cv_C - cv_A)
+
+global_stats <- data_long %>%
+  filter(!is.na(path_id), !is.na(beta)) %>%
+  group_by(path_id) %>%
+  summarise(
+    mean_A  = mean(beta[position == "A"], na.rm = TRUE),
+    sd_A    = sd(beta[position == "A"],   na.rm = TRUE),
+    mean_C  = mean(beta[position == "C"], na.rm = TRUE),
+    sd_C    = sd(beta[position == "C"],   na.rm = TRUE),
+    cv_A    = (sd_A  / abs(mean_A)) * 100,
+    cv_C    = (sd_C  / abs(mean_C)) * 100,
+    r_sync  = cor(
+      beta[position == "A"],
+      beta[position == "C"],
+      use = "pairwise.complete.obs"
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(delta_cv = cv_C - cv_A, season = "Whole period")
+
+table_long <- bind_rows(global_stats, seasonal_stats) %>%
+  mutate(
+    season   = factor(season, levels = c("Whole period", season_order)),
+    label_A  = paste0(round(mean_A, 2), " \u00b1 ", round(sd_A, 2)),
+    label_C  = paste0(round(mean_C, 2), " \u00b1 ", round(sd_C, 2)),
+    label_dc = as.character(round(delta_cv, 1)),
+    label_r  = as.character(round(r_sync,   2))
+  )
+
+table_display <- table_long %>%
+  select(path_id, season, label_A, label_C, label_dc, label_r) %>%
+  pivot_longer(cols = c(label_A, label_C, label_dc, label_r),
+               names_to = "metric") %>%
+  pivot_wider(names_from = path_id, values_from = value) %>%
+  arrange(season) %>%
+  select(-season) %>%
+  mutate(Metric = case_when(
+    metric == "label_A"  ~ "\u03b2 unmanaged A (mean \u00b1 SD)",
+    metric == "label_C"  ~ "\u03b2 managed C (mean \u00b1 SD)",
+    metric == "label_dc" ~ "\u0394 CV (C \u2212 A, pp)",
+    metric == "label_r"  ~ "Synchrony (r)",
+    TRUE                 ~ metric
+  )) %>%
+  select(Metric, everything(), -metric)
+
+delta_rows     <- seq(3, nrow(table_display), by = 4)
+sync_rows      <- seq(4, nrow(table_display), by = 4)
+path_col_indices <- 2:ncol(table_display)
+
+tbl <- table_display %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    font_size = 11, full_width = TRUE
+  ) %>%
+  pack_rows("Whole period", 1, 4,
+            label_row_css = "background-color:#e8e8e8; font-weight:bold;") %>%
+  pack_rows("Spring",  5,  8, label_row_css = "background-color:#f4f4f4;") %>%
+  pack_rows("Summer",  9, 12, label_row_css = "background-color:#f4f4f4;") %>%
+  pack_rows("Autumn", 13, 16, label_row_css = "background-color:#f4f4f4;") %>%
+  pack_rows("Winter", 17, 20, label_row_css = "background-color:#f4f4f4;") %>%
+  column_spec(1, bold = TRUE, width = "16em") %>%
+  row_spec(sync_rows, color = "#2166AC", italic = TRUE)
+
+reduce(path_col_indices, function(t, col_i) {
+  col_values  <- table_display[[col_i]]
+  cell_colors <- map_chr(1:nrow(table_display), function(row_j) {
+    if (row_j %in% delta_rows) {
+      val <- as.numeric(col_values[row_j])
+      if (is.na(val))  return("black")
+      if (val > 0)     return("#c1603a")
+      if (val < 0)     return("#3d5a3e")
+      return("grey55")
+    } else {
+      return("black")
+    }
+  })
+  column_spec(t, col_i,
+              color = cell_colors,
+              bold  = if_else(1:nrow(table_display) %in% delta_rows, TRUE, FALSE))
+}, .init = tbl)
 ```
