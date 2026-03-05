@@ -26,7 +26,7 @@ The overarching question is whether perennial vegetation buffers soil communitie
 
 ## Causal model (piecewise SEM)
 
-![SEM diagram](images/clipboard-1757451306.png)
+![SEM diagram](images/image.png)
 
 The model is fitted independently on overlapping rolling time windows. All variables are z-score standardised prior to modelling, making path coefficients directly comparable across taxa and predictors. `land_use` (0 = A, 1 = C) is the exogenous binary driver and is deliberately excluded from z-scoring so that interaction coefficients retain their interpretation as slope differences between management types.
 
