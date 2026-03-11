@@ -15,8 +15,6 @@ dplyr
 stringr
 forcats
 lubridate
-piecewiseSEM
-performance
 Matrix
 lme4
 nlme

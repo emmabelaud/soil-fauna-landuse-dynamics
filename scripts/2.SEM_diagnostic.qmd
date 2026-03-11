@@ -30,57 +30,80 @@ Its outputs are consumed directly by:
 ## What this script produces
 
 | Output | File | Description |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | Full benchmark table | `benchmark_results_database.csv` | Diagnostic statistics for every parameter combination x response variable |
 | Selected model parameters | `model_parameters.txt` | Optimal window duration, completeness threshold, and transformation, saved as JSON |
 
 ## Statistical approach
 
-The causal model has four structural equations organised in three tiers, with `land_use` (0 = unmanaged, 1 = managed) as the exogenous binary driver. **Tiers 2 and 3 include interaction terms** so that the sensitivity analysis evaluates the same model complexity used in `check_models_performance.qmd`.
+The causal model has four structural equations organised in three tiers, with
+`land_use` (0 = unmanaged, 1 = managed) as the exogenous binary driver.
+At the diagnostic stage, each equation is fitted **independently as a classical
+linear mixed model** (LME) rather than within the full piecewise SEM structure.
+This isolates the residual behaviour of each response variable and avoids
+confounding model-fitting issues across equations. Interaction terms are excluded
+at this stage; the full SEM is additive throughout — no interaction terms are used in any script.
+the optimal window and transformation have been determined.
 
-**Tier 1 - land use shapes microclimate** (additive):
+**Tier 1 — land use shapes microclimate** (additive):
 
-$$\text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$$ $$\text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$$
+$$\text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$$
+$$\text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$$
 
-**Tier 2 - microclimate x land use drives root**:
+**Tier 2 — microclimate drives root:**
 
-$$\text{Root} \leftarrow \beta_3 \cdot \text{mc}_1 + \beta_4 \cdot \text{mc}_2 + \beta_5 \cdot \text{lu} + \beta_6 \cdot (\text{mc}_1 \times \text{lu}) + \beta_7 \cdot (\text{mc}_2 \times \text{lu})$$
+$$\text{Root} \leftarrow \beta_3 \cdot \text{mc}_1 + \beta_4 \cdot \text{mc}_2 + \beta_5 \cdot \text{lu}$$
 
-**Tier 3 - (microclimate + root) x land use drives fauna**:
+**Tier 3 — microclimate and root drive fauna:**
 
-$$\text{Fauna} \leftarrow \beta_8 \cdot \text{mc}_1 + \beta_9 \cdot \text{mc}_2 + \beta_{10} \cdot \text{Root} + \beta_{11} \cdot \text{lu} + \beta_{12} \cdot (\text{mc}_1 \times \text{lu}) + \beta_{13} \cdot (\text{mc}_2 \times \text{lu}) + \beta_{14} \cdot (\text{Root} \times \text{lu})$$
+$$\text{Fauna} \leftarrow \beta_6 \cdot \text{mc}_1 + \beta_7 \cdot \text{mc}_2 + \beta_8 \cdot \text{Root} + \beta_9 \cdot \text{lu}$$
 
 *where mc = microclimate index, lu = land_use.*
 
-All equations use a **nested random intercept** (`orientation / depth`) and an **AR(1) correlation structure** to account for temporal autocorrelation within scanner groups. The residual covariance between the two microclimate indices is modelled with a `%~~%` term.
+All equations use a **nested random intercept** (`orientation / depth`) and an
+**AR(1) correlation structure** to account for temporal autocorrelation within
+scanner groups.
 
 ## Sensitivity analysis rationale
 
 Three structural choices must be validated before running the full SEM:
 
 | Parameter | Question | Values tested |
-|----|----|----|
-| **Window duration** | How many days are needed for a stable fit? | 5, 7, 10, 14, 21, 28, 30 days |
+|------------------------|------------------------|------------------------|
+| **Window duration** | How many days are needed for a stable fit? | 5, 7, 10, 14, 21 days |
 | **Min. data completeness** | How many missing images can be tolerated? | 10% to 50% |
-| **Transformation** | Which transform best normalises the variables? | none, Freeman-Tukey, log, Hellinger |
+| **Transformation** | Which transform best normalises the variables? | none, sqrt, Freeman-Tukey, log, Hellinger |
 
-These parameters are crossed in a **full factorial grid** (7 x 5 x 4 = 140 combinations). The same transformation is applied uniformly to all modelled variables (fauna, root, and both microclimate indices) within each configuration. This simplifies the parameter space at this diagnostic stage; variable-specific transforms can be investigated later if residual diagnostics remain unsatisfactory.
+These parameters are crossed in a **full factorial grid** (5 × 4 × 5 = 100
+combinations). The same transformation type is applied uniformly to all modelled
+variables within each configuration, but **z-score standardisation is performed
+independently within each rolling window** after the transformation. This ensures
+that standardised coefficients reflect within-window variation rather than the
+global distribution of the full time series — which would mix seasonal and
+inter-annual variance in an uncontrolled way.
 
 | Diagnostic | Metric | Threshold |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | Heteroscedasticity | Spearman rho between abs(residuals) and fitted values | \< 0.4 |
 | Skewness | Absolute skewness of normalised residuals | \< 1.5 |
-| Collinearity | Maximum VIF across main-effect predictors | \< 5 |
-| Explanatory power | Marginal and conditional R-squared | -- |
+| Collinearity | Maximum VIF across predictors | \< 5 |
+| Explanatory power | Marginal and conditional R-squared | — |
 
-> **Note on VIF with interaction models.** VIF is computed on a **main-effects-only** version of each formula, stripping interaction terms. Collinearity between X and X:land_use is expected by construction and is not informative about data problems; computing VIF on the full interaction formula would always return inflated values.
+> **Note on VIF.** With no interaction terms in the diagnostic models, VIF is
+> computed directly on the fitted model formula. `land_use` is excluded from VIF
+> calculation as a binary exogenous driver; the check targets collinearity among
+> continuous predictors only.
 
 ## Selection criterion
 
 The optimal configuration is chosen by a **two-step procedure**:
 
-1.  For each response variable **independently**, select the transformation maximising `prop_valid_models x avg_R2_marginal`.
-2.  Across biological responses **jointly** (root and fauna), find the (window, min_rate) pair maximising `combined_validity x mean_R2`, where `combined_validity = min(prop_valid_root, prop_valid_fauna)`. Using the minimum ensures that neither response can mask a poor fit in the other.
+1.  For each response variable **independently**, select the transformation
+    maximising `prop_valid_models × avg_R2_marginal`.
+2.  Across biological responses **jointly** (root and fauna), find the
+    (window, min_rate) pair maximising `combined_validity × mean_R2`, where
+    `combined_validity = min(prop_valid_root, prop_valid_fauna)`. Using the
+    minimum ensures that neither response can mask a poor fit in the other.
 
 ------------------------------------------------------------------------
 
@@ -92,7 +115,7 @@ The optimal configuration is chosen by a **two-step procedure**:
 invisible(Sys.setlocale("LC_TIME", "C"))
 
 libs <- c(
-  "tidyverse", "lubridate", "piecewiseSEM", "performance",
+  "tidyverse", "lubridate",
   "lme4", "purrr", "nlme", "moments", "car",
   "knitr", "kableExtra"
 )
@@ -145,44 +168,47 @@ create_rolling_windows <- function(df, window_days, step_days = 1) {
 }
 ```
 
-### 2.2 SEM structure
+### 2.2 Independent model fitting
 
-Tiers 2 and 3 use `* land_use` to expand into main effects plus interactions. Tier 1 is additive. The `%~~%` term accounts for shared physical drivers of both microclimate indices.
+Each structural equation is fitted as a standalone LME, without the piecewise
+SEM wrapper. This approach is appropriate at the diagnostic stage: residuals
+from each equation can be inspected in isolation, and convergence failures in
+one model do not propagate to others. No interaction terms are included here —
+the diagnostic targets the additive structure only.
 
-```{r fn-fit-psem}
-#' Fit the piecewise SEM with interaction terms for a single data window
+```{r fn-fit-models}
+#' Fit the four SEM equations independently as classical LME models
+#'
+#' Each model is fitted separately without the psem() wrapper.
+#' No interaction terms — additive structure only for diagnostics.
 #'
 #' @param data Dataframe with columns: `land_use`, `root`, `fauna`,
 #'             `microclimate_1`, `microclimate_2`, `orientation`, `depth`.
-#' @return A `psem` object.
-fit_psem <- function(data) {
-  psem(
+#'             Variables must already be transformed and z-scored within window.
+#' @return Named list of four `lme` objects (NULL entries on convergence failure).
+fit_models_independently <- function(data) {
 
-    lme(microclimate_1 ~ land_use,
-        data        = data,
-        random      = ~ 1 | orientation / depth,
-        correlation = corAR1(form = ~ 1 | orientation / depth),
-        control     = lmeControl(msMaxIter = 200, opt = "optim")),
+  lme_ctrl <- lmeControl(msMaxIter = 200, opt = "optim")
 
-    lme(microclimate_2 ~ land_use,
-        data        = data,
-        random      = ~ 1 | orientation / depth,
-        correlation = corAR1(form = ~ 1 | orientation / depth),
-        control     = lmeControl(msMaxIter = 200, opt = "optim")),
+  safe_lme <- function(formula) {
+    tryCatch(
+      withCallingHandlers(
+        lme(formula,
+            data        = data,
+            random      = ~ 1 | orientation / depth,
+            correlation = corAR1(form = ~ 1 | orientation / depth),
+            control     = lme_ctrl),
+        warning = function(w) invokeRestart("muffleWarning")
+      ),
+      error = function(e) NULL
+    )
+  }
 
-    lme(root ~ (microclimate_1 + microclimate_2) * land_use,
-        data        = data,
-        random      = ~ 1 | orientation / depth,
-        correlation = corAR1(form = ~ 1 | orientation / depth),
-        control     = lmeControl(msMaxIter = 200, opt = "optim")),
-
-    lme(fauna ~ (microclimate_1 + microclimate_2 + root) * land_use,
-        data        = data,
-        random      = ~ 1 | orientation / depth,
-        correlation = corAR1(form = ~ 1 | orientation / depth),
-        control     = lmeControl(msMaxIter = 200, opt = "optim")),
-
-    microclimate_1 %~~% microclimate_2
+  list(
+    microclimate_1 = safe_lme(microclimate_1 ~ land_use),
+    microclimate_2 = safe_lme(microclimate_2 ~ land_use),
+    root           = safe_lme(root ~ microclimate_1 + microclimate_2 + land_use),
+    fauna          = safe_lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use)
   )
 }
 ```
@@ -190,34 +216,87 @@ fit_psem <- function(data) {
 ### 2.3 Transformation functions
 
 ```{r fn-transforms}
+#' Shift a vector to be strictly positive before a transform that requires x > 0.
+#' If min(x) <= 0, shifts the whole vector by |min(x)| + 0.001 and emits a message.
+shift_positive <- function(x, label = "") {
+  x_min <- min(x, na.rm = TRUE)
+  if (!is.na(x_min) && x_min <= 0) {
+    shift <- abs(x_min) + 0.001
+    message(sprintf("  [shift] '%s' shifted by +%.4f (min was %.4f)", label, shift, x_min))
+    x <- x + shift
+  }
+  x
+}
+
 #' Freeman-Tukey: sqrt(x) + sqrt(x + 1). Stabilises variance in count data with zeros.
 transform_ft <- function(x) sqrt(x) + sqrt(x + 1)
 
-#' Log: log(x + 1). Right-skew correction; log1p handles zero values.
-transform_log <- function(x) log1p(x)
+#' Log: log(x + 1) after shifting to positive if needed.
+transform_log <- function(x, label = "") log1p(shift_positive(x, label))
 
-#' Hellinger: sqrt(x / sum(x)). Reduces outlier influence; window-relative scale.
+#' Sqrt after shifting to positive if needed.
+transform_sqrt <- function(x, label = "") sqrt(shift_positive(x, label))
+
+#' Hellinger: sqrt(x / sum(x)). Window-relative — must be applied per window.
 transform_hellinger <- function(x) sqrt(x / sum(x, na.rm = TRUE))
+
+#' Compute marginal and conditional R² for an nlme::lme model.
+#'
+#' Uses the fitted-value variance approach: R²m = var(fixed-effect predictions)
+#' / var(observed); R²c = var(full predictions including random) / var(observed).
+#' This avoids parsing the VarCorr character matrix, which is fragile across
+#' nlme versions. fitted(m, level = 0) returns population-level predictions
+#' (fixed effects only); fitted(m, level = k) adds all k levels of random effects.
+#'
+#' @param m A fitted nlme::lme object.
+#' @return Named numeric vector c(R2m = ..., R2c = ...).
+r2_lme <- function(m) {
+  tryCatch({
+    y_obs <- as.numeric(nlme::getResponse(m))
+    y_fix <- as.numeric(fitted(m, level = 0))                # fixed effects only
+    y_all <- as.numeric(fitted(m, level = length(m$groups))) # fixed + all random
+
+    ss_obs <- var(y_obs, na.rm = TRUE)
+    if (is.na(ss_obs) || ss_obs == 0)
+      return(c(R2m = NA_real_, R2c = NA_real_))
+
+    r2m <- var(y_fix, na.rm = TRUE) / ss_obs
+    r2c <- var(y_all, na.rm = TRUE) / ss_obs
+
+    # Clamp to [0, 1]: numerical noise can produce tiny negative or >1 values
+    c(R2m = min(max(r2m, 0), 1),
+      R2c = min(max(r2c, 0), 1))
+  }, error = function(e) c(R2m = NA_real_, R2c = NA_real_))
+}
 ```
 
-### 2.4 Main SEM pipeline
+### 2.4 Main diagnostic pipeline
 
 ```{r fn-pipeline}
-#' Run the rolling-window SEM pipeline for one taxon variable
+#' Run the rolling-window diagnostic pipeline for one taxon variable
+#'
+#' Each window is processed independently:
+#'   1. Subset and drop NAs
+#'   2. Apply transformation
+#'   3. Z-score standardise within the window (excludes land_use)
+#'   4. Fit four LME models independently
+#'   5. Extract residual diagnostics and R² per model
 #'
 #' @param taxon_var   Character. Column name of the fauna variable.
-#' @param data_raw    Dataframe. Full SEM database (already transformed).
+#' @param data_raw    Dataframe. Full SEM database (raw, untransformed).
 #' @param m_indices   Character vector of length 2. Microclimate index names.
+#' @param transfo_type Character. One of "none", "sqrt", "sqrt_plus_one",
+#'                    "log", "hellinger".
 #' @param window_days Integer. Rolling window duration (days).
 #' @param step_days   Integer. Step between window start dates.
 #' @param min_rate    Numeric [0, 1]. Minimum completeness ratio.
-#'                    Denominator = window_days x 16 slots x 2 positions.
 #' @param n_windows   Integer or NULL. Random subsample size for benchmarking.
-#' @return Dataframe with one row per model x response, or NULL.
-run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
+#' @return Dataframe with one row per model x window, or NULL.
+run_sem_pipeline <- function(taxon_var, data_raw, m_indices, transfo_type,
                              window_days = 14, step_days = 1,
                              min_rate = 0.3, n_windows = NULL) {
 
+  # Rename fauna and microclimate columns to generic names
   sem_data <- data_raw %>%
     mutate(
       fauna          = !!sym(taxon_var),
@@ -228,9 +307,9 @@ run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
     select(date, land_use, orientation, depth,
            fauna, root, microclimate_1, microclimate_2)
 
+  # Split into overlapping windows and retain only sufficiently complete ones
   windows <- create_rolling_windows(sem_data, window_days, step_days)
 
-  # Both positions are present in every window, so denominator is x2
   valid_windows <- keep(windows,
                         ~ (nrow(drop_na(.x)) / (window_days * 16 * 2)) >= min_rate)
 
@@ -238,87 +317,97 @@ run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
     valid_windows <- valid_windows[sample(seq_along(valid_windows), n_windows)]
   }
 
+  vars_to_process <- c("fauna", "root", "microclimate_1", "microclimate_2")
+
   results_list <- map(names(valid_windows), function(w_name) {
 
     win_data <- valid_windows[[w_name]] %>%
       drop_na() %>%
       arrange(land_use, orientation, depth, date)
 
-    vars_to_check <- c("fauna", "root", "microclimate_1", "microclimate_2")
+    # ── A. Apply transformation within this window ───────────────────────────
+    # Hellinger is inherently window-relative (sums to 1 within window).
+    # Other transforms are element-wise but applied here for consistency.
+    win_data <- win_data %>%
+      mutate(across(all_of(vars_to_process), function(x) {
+        col <- cur_column()
+        switch(transfo_type,
+          "sqrt"          = transform_sqrt(x, col),
+          "sqrt_plus_one" = transform_ft(x),
+          "log"           = transform_log(x, col),
+          "hellinger"     = transform_hellinger(x),
+          x
+        )
+      }))
 
-    # Guard 1: zero variance causes Cholesky failures
-    if (any(sapply(win_data[vars_to_check], sd, na.rm = TRUE) == 0)) return(NULL)
+    # ── B. Z-score standardise within this window ────────────────────────────
+    # land_use is excluded: it is binary and its scale must remain 0/1
+    # for coefficient interpretation.
+    win_data <- win_data %>%
+      mutate(across(all_of(vars_to_process), ~ as.numeric(scale(.))))
 
-    # Guard 2: interactions require both land_use levels
+    # ── Guards ────────────────────────────────────────────────────────────────
+    # sd() returns NA (not 0) when all values in a column are NA after drop_na()
+    # (can occur for sparse taxa). is.na() check catches both NA and zero-SD cases.
+    stdevs <- sapply(win_data[vars_to_process], sd, na.rm = TRUE)
+    if (any(is.na(stdevs) | stdevs == 0)) return(NULL)
     if (length(unique(win_data$land_use)) < 2) return(NULL)
+    if (any(!is.finite(as.matrix(win_data[vars_to_process])))) return(NULL)
 
-    # Guard 3: non-finite values from transforms or scaling
-    if (any(!is.finite(as.matrix(win_data[vars_to_check])))) return(NULL)
+    # ── C. Fit the four equations independently ───────────────────────────────
+    models <- fit_models_independently(win_data)
 
-    model <- tryCatch(
-      withCallingHandlers(
-        fit_psem(win_data),
-        warning = function(w) invokeRestart("muffleWarning")
-      ),
-      error = function(e) NULL
-    )
-    if (is.null(model)) return(NULL)
+    # ── D. Extract diagnostics per model ──────────────────────────────────────
+    map_dfr(names(models), function(resp_name) {
 
-    sm <- tryCatch(summary(model), error = function(e) NULL)
-    if (is.null(sm)) return(NULL)
+      m <- models[[resp_name]]
+      if (is.null(m)) return(NULL)
 
-    # ── R-squared ──────────────────────────────────────────────────────────
-    r2_raw   <- as.data.frame(sm$R2)
-    col_cond <- grep("R.squared|Conditional", names(r2_raw), value = TRUE)[1]
-    col_marg <- grep("Marginal",              names(r2_raw), value = TRUE)[1]
-
-    r2_df <- r2_raw %>%
-      mutate(r2_cond     = .[[col_cond]],
-             r2_marginal = .[[col_marg]]) %>%
-      select(response = Response, r2_cond, r2_marginal)
-
-    # ── Residual diagnostics ───────────────────────────────────────────────
-    lme_mods <- keep(model, inherits, "lme")
-
-    map_dfr(lme_mods, function(m) {
       res <- residuals(m, type = "normalized")
       fit <- fitted(m)
 
+      # AR(1) autocorrelation parameter
       phi_val <- tryCatch(
         coef(m$modelStruct$corStruct, unconstrained = FALSE),
-        error = function(e) NA
+        error = function(e) NA_real_
       )
 
-      # VIF on main-effects-only formula (strip interaction terms and land_use)
-      # Interaction terms inflate VIF by construction — not a data problem
+      # R² (marginal = fixed effects only; conditional = fixed + random)
+      # r2_lme() uses manual variance partitioning — avoids the MuMIn matrix
+      # indexing issue where r.squaredGLMM() returns a matrix for lme objects
+      # and named-vector access silently returns NA.
+      r2_vals <- r2_lme(m)
+
+      # VIF: computed on continuous predictors only (land_use excluded as binary)
       vif_val <- tryCatch({
-        all_terms  <- labels(terms(m))
-        main_terms <- all_terms[!str_detect(all_terms, ":")]
-        main_terms <- setdiff(main_terms, "land_use")
-        if (length(main_terms) > 1) {
-          f_main <- as.formula(
+        pred_terms <- labels(terms(m))
+        cont_terms <- setdiff(pred_terms, "land_use")
+        if (length(cont_terms) > 1) {
+          f_vif <- as.formula(
             paste(all.vars(formula(m))[1], "~",
-                  paste(main_terms, collapse = " + "))
+                  paste(cont_terms, collapse = " + "))
           )
-          max(car::vif(lm(f_main, data = win_data)))
-        } else 1
-      }, error = function(e) NA)
+          max(car::vif(lm(f_vif, data = win_data)))
+        } else NA_real_
+      }, error = function(e) NA_real_)
 
       tibble(
         model_id        = paste(taxon_var, w_name, sep = "_"),
-        response        = all.vars(formula(m))[1],
+        response        = resp_name,
         n_obs           = length(res),
         vif_max         = vif_val,
         hetero_strength = cor(abs(res), fit, method = "spearman",
                               use = "complete.obs"),
         skewness        = moments::skewness(res, na.rm = TRUE),
-        ar1_phi         = as.numeric(phi_val)
-      ) %>%
-        left_join(r2_df, by = "response")
+        ar1_phi         = as.numeric(phi_val),
+        r2_marginal     = as.numeric(r2_vals["R2m"]),
+        r2_cond         = as.numeric(r2_vals["R2c"])
+      )
     })
   }) %>%
     compact()
 
+  if (length(results_list) == 0) return(NULL)
   return(map_dfr(results_list, ~ .x))
 }
 ```
@@ -332,46 +421,27 @@ run_sem_pipeline <- function(taxon_var, data_raw, m_indices,
 ```{r fn-test-config}
 #' Test a single parameter configuration and summarise diagnostic outcomes
 #'
-#' The same transformation is applied uniformly to all modelled variables
-#' (fauna, root, microclimate_1, microclimate_2). This keeps the sensitivity
-#' grid simple at this stage.
+#' Transformation type and window parameters are passed to run_sem_pipeline(),
+#' which applies them within each window independently. No global scaling
+#' is performed at this level.
 #'
 #' @param w_days       Integer. Window duration (days).
 #' @param m_rate_val   Numeric. Minimum data completeness ratio.
-#' @param transfo_type Character. One of: "none", "sqrt","sqrt_plus_one", "log", "hellinger".
-#' @param data_raw     Full SEM dataframe.
+#' @param transfo_type Character. One of: "none", "sqrt", "sqrt_plus_one",
+#'                    "log", "hellinger".
+#' @param data_raw     Full SEM dataframe (raw, untransformed).
 #' @param taxon        Character. Fauna variable column name.
 #' @param m_indices    Character vector of length 2. Microclimate index names.
 #' @return Dataframe with per-response summary statistics, or NULL.
 test_configuration <- function(w_days, m_rate_val, transfo_type,
                                data_raw, taxon, m_indices) {
 
-  df_iter <- data_raw
-
-  # ── A. Apply transformation uniformly to all modelled variables ───────────
-  all_target_vars <- c(fauna_vars, "root", m_indices)
-
-  df_iter <- df_iter %>%
-    mutate(across(all_of(intersect(all_target_vars, names(.))), function(x) {
-      switch(transfo_type,
-        "sqrt"          = sqrt(x),
-        "sqrt_plus_one" = transform_ft(x),
-        "log"           = transform_log(x),
-        "hellinger"     = transform_hellinger(x),
-        x
-      )
-    }))
-
-  # ── B. Z-score standardisation — all numeric variables except land_use ────
-  df_iter <- df_iter %>%
-    mutate(across(
-      where(is.numeric) & !all_of("land_use"),
-      ~ as.numeric(scale(.))
-    ))
-
-  # ── C. Run pipeline on 50 randomly sampled windows ───────────────────────
+  # run_sem_pipeline handles all transformation and per-window scaling
   res_diag <- run_sem_pipeline(
-    taxon, df_iter, m_indices,
+    taxon_var   = taxon,
+    data_raw    = data_raw,
+    m_indices   = m_indices,
+    transfo_type = transfo_type,
     window_days = w_days,
     min_rate    = m_rate_val,
     n_windows   = 50
@@ -379,8 +449,6 @@ test_configuration <- function(w_days, m_rate_val, transfo_type,
 
   if (is.null(res_diag) || nrow(res_diag) == 0) return(NULL)
 
-  # ── D. Score and aggregate ────────────────────────────────────────────────
-  # NA vif_max = not applicable (single predictor or interaction model) -> pass
   res_diag %>%
     mutate(
       is_ok = abs(hetero_strength) < HETERO_THRESHOLD &
@@ -408,33 +476,44 @@ test_configuration <- function(w_days, m_rate_val, transfo_type,
 
 ```{r benchmarking, cache=TRUE}
 sensibility_grid <- expand.grid(
-  w_days     = c(7, 10, 14, 21, 28, 30),
+  w_days     = c(5, 7, 10, 14, 21),
   m_rate_val = c(0.1, 0.2, 0.3, 0.4),
   transfo    = c("none", "sqrt", "sqrt_plus_one", "log", "hellinger"),
   stringsAsFactors = FALSE
 )
 
-quiet_test <- purrr::quietly(test_configuration)
+quiet_test <- purrr::safely(test_configuration)
 
-benchmark_results <- sensibility_grid %>%
-  purrr::pmap_dfr(~ quiet_test(
+# Run all configurations; safely() captures errors without stopping execution
+safe_results <- sensibility_grid %>%
+  purrr::pmap(~ quiet_test(
     ..1, ..2, ..3,
     data_sem_raw, fauna_vars[1], microclimate_index
-  )$result)
+  ))
+
+# Report how many configurations failed (NULL result = no valid windows)
+n_failed <- sum(map_lgl(safe_results, ~ !is.null(.x$error)))
+if (n_failed > 0) message(n_failed, " configuration(s) returned an error.")
+
+benchmark_results <- map_dfr(safe_results, "result")
 ```
 
 ------------------------------------------------------------------------
 
-### 4. Results
+## 4. Results
 
 ### 4.1 Global optimisation — independent transformation per response variable
 
-The benchmark grid tested one transformation uniformly per run, but because diagnostics are extracted per-equation, each response can be evaluated independently. We select the best transformation for each of the four responses separately using a lexicographic criterion — validity first, R² second — then find the common (window, min_rate) that maximises joint validity across all responses by the same logic.
+The benchmark grid tests one transformation per run, but because diagnostics
+are extracted per equation, each response can be evaluated independently. We
+select the best transformation for each of the four responses separately using
+a lexicographic criterion — validity first, R² second — then find the common
+(window, min_rate) that maximises joint validity across all responses.
 
 ```{r global-optimization}
+EXPECTED_RESPONSES <- c("fauna", "root", "microclimate_1", "microclimate_2")
+
 # ── Step 1: per (window, min_rate, response), best transformation ─────────────
-# Lexicographic selection: maximise prop_valid_models first, break ties by R².
-# This ensures scientific rigour is never traded for explanatory power.
 best_per_variable <- benchmark_results %>%
   group_by(window, min_rate, response) %>%
   arrange(desc(prop_valid_models), desc(avg_r2_marginal)) %>%
@@ -442,22 +521,25 @@ best_per_variable <- benchmark_results %>%
   ungroup()
 
 # ── Step 2: best common (window, min_rate) across all four responses ──────────
-# combined_validity = min across all four responses: a poor fit in any single
-# response cannot be masked by good fits in the others.
-# Lexicographic sort applied again at this level: validity first, R² second.
+# Only include (window, min_rate) pairs where all four responses converged.
+# If any response is missing entirely, transformation[response == "root"] returns
+# character(0) inside summarise(), which crashes or silently drops the row.
+# combined_validity = min across responses so a poor fit in one cannot be masked.
 global_optimization <- best_per_variable %>%
   group_by(window, min_rate) %>%
+  filter(all(EXPECTED_RESPONSES %in% response)) %>%
   summarise(
-    combined_validity      = min(prop_valid_models),
-    mean_r2                = mean(avg_r2_marginal),
+    combined_validity      = min(prop_valid_models,  na.rm = TRUE),
+    mean_r2                = mean(avg_r2_marginal,   na.rm = TRUE),
     transfo_root           = transformation[response == "root"],
     transfo_fauna          = transformation[response == "fauna"],
     transfo_microclimate_1 = transformation[response == "microclimate_1"],
     transfo_microclimate_2 = transformation[response == "microclimate_2"],
     .groups = "drop"
   ) %>%
+  # NaN from mean() over all-NA R² — replace with NA so arrange() works cleanly
+  mutate(mean_r2 = ifelse(is.nan(mean_r2), NA_real_, mean_r2)) %>%
   arrange(desc(combined_validity), desc(mean_r2)) %>%
-  # global_score retained for reporting only — selection is lexicographic
   mutate(global_score = combined_validity * mean_r2)
 
 # ── Step 3: display top 5 ─────────────────────────────────────────────────────
@@ -482,6 +564,173 @@ global_optimization %>%
   ) %>%
   row_spec(0, bold = TRUE, background = "#f2f2f2") %>%
   row_spec(1, bold = TRUE, background = "#FEC288")
+
+final_selection <- global_optimization %>%
+  slice(1)
+```
+
+------------------------------------------------------------------------
+
+## 4.2 Per-equation performance summary — selected configuration
+
+The table below zooms into the **selected (window, min_rate)** pair and
+shows, for each structural equation independently, the diagnostic
+statistics obtained with its own best transformation. This makes it
+immediately clear which equations drive the joint validity ceiling and
+why.
+
+Colour legend:
+
+-   **Validity** — proportion of windows passing all three diagnostic
+    thresholds (heteroscedasticity \< 0.4, \|skewness\| \< 1.5, VIF \<
+    5). Green ≥ 0.7 / orange 0.4–0.69 / red \< 0.4.
+-   **Skewness** — mean absolute skewness of normalised residuals across
+    valid windows. Flagged orange when \> 1.5 (threshold exceeded on
+    average).
+-   **Heteroscedasticity** — mean Spearman ρ between \|residuals\| and
+    fitted values. Flagged orange when \> 0.4.
+-   **R² marginal** — variance explained by fixed effects only. Low
+    values indicate the predictors lack explanatory power beyond random
+    structure. No threshold — shown for context.
+-   **ΔR²** — conditional minus marginal R². Large values indicate
+    strong random effects (random structure absorbs most of the
+    variance); small values indicate random structure contributes little.
+
+```{r per-equation-summary}
+# ── Retrieve the selected (window, min_rate) ──────────────────────────────────
+sel_window   <- final_selection$window
+sel_min_rate <- final_selection$min_rate
+
+# Map of response → its selected transformation (from global_optimization row 1)
+sel_transfo <- c(
+  fauna          = final_selection$transfo_fauna,
+  root           = final_selection$transfo_root,
+  microclimate_1 = final_selection$transfo_microclimate_1,
+  microclimate_2 = final_selection$transfo_microclimate_2
+)
+
+# Pull the matching rows from the full benchmark for each response + its transfo
+per_eq_stats <- imap_dfr(sel_transfo, function(transfo, resp) {
+  benchmark_results %>%
+    filter(
+      response       == resp,
+      window         == sel_window,
+      min_rate       == sel_min_rate,
+      transformation == transfo
+    )
+}) %>%
+  mutate(
+    # ── Display labels ────────────────────────────────────────────────────────
+    response_label = case_match(response,
+      "fauna"          ~ "Faunal activity",
+      "root"           ~ "Root growth",
+      "microclimate_1" ~ microclimate_index[1],
+      "microclimate_2" ~ microclimate_index[2],
+      .default = response
+    )
+  ) %>%
+  arrange(match(response,
+                c("fauna", "root", "microclimate_1", "microclimate_2")))
+
+# ── Pre-extract vectors for column_spec (avoids double evaluation) ────────────
+validity_vals  <- per_eq_stats$prop_valid_models
+skewness_vals  <- abs(per_eq_stats$skewness)
+hetero_vals    <- per_eq_stats$hetero_strength
+r2_vals_marg   <- per_eq_stats$avg_r2_marginal
+
+validity_col <- case_when(
+  validity_vals >= 0.70 ~ "#2d6a4f",
+  validity_vals >= 0.40 ~ "#c1603a",
+  TRUE                  ~ "#b00020"
+)
+skewness_col  <- if_else(skewness_vals  > SKEWNESS_THRESHOLD, "#c1603a", "black")
+hetero_col    <- if_else(hetero_vals    > HETERO_THRESHOLD,   "#c1603a", "black")
+
+# ── Render table ──────────────────────────────────────────────────────────────
+per_eq_stats %>%
+  mutate(
+    across(c(prop_valid_models, avg_r2_marginal, avg_r2_conditional,
+             delta_r2, hetero_strength, skewness), ~ round(., 3)),
+    vif_max = round(vif_max, 2)
+  ) %>%
+  select(
+    "Equation"            = response_label,
+    "Transform"           = transformation,
+    "Validity"            = prop_valid_models,
+    "R² marg."            = avg_r2_marginal,
+    "R² cond."            = avg_r2_conditional,
+    "ΔR²"                 = delta_r2,
+    "Skewness"            = skewness,
+    "Heterosced."         = hetero_strength,
+    "VIF max"             = vif_max
+  ) %>%
+  kable(
+    align = c("l", "c", "c", "c", "c", "c", "c", "c", "c")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE, position = "center", font_size = 13
+  ) %>%
+  row_spec(0, bold = TRUE, background = "#f2f2f2") %>%
+  column_spec(3,  color = validity_col, bold = TRUE) %>%
+  column_spec(7,  color = skewness_col, bold = skewness_vals > SKEWNESS_THRESHOLD) %>%
+  column_spec(8,  color = hetero_col,   bold = hetero_vals   > HETERO_THRESHOLD) 
+```
+
+
+```{r per-equation-barplot}
+#| fig-cap: >
+#|   Proportion of valid windows per equation under the selected configuration.
+#|   The dashed line marks the 0.7 acceptability threshold. Colour encodes the
+#|   dominant diagnostic failure mode when validity < 0.7.
+#| fig-width: 8
+#| fig-height: 3.5
+
+bar_dat <- per_eq_stats %>%
+  mutate(
+    failure_mode = case_when(
+      prop_valid_models >= 0.70                    ~ "Acceptable",
+      abs(skewness)     > SKEWNESS_THRESHOLD       ~ "Skewness",
+      hetero_strength   > HETERO_THRESHOLD         ~ "Heteroscedasticity",
+      !is.na(vif_max) & vif_max > VIF_THRESHOLD    ~ "Collinearity",
+      TRUE                                         ~ "Mixed / other"
+    ),
+    response_label = factor(response_label,
+                            levels = rev(response_label))
+  )
+
+failure_colours <- c(
+  "Acceptable"        = "#2d6a4f",
+  "Skewness"          = "#6b9ac4",
+  "Heteroscedasticity"= "#c1603a",
+  "Collinearity"      = "#9b5de5",
+  "Mixed / other"     = "#adb5bd"
+)
+
+ggplot(bar_dat, aes(x = prop_valid_models, y = response_label,
+                    fill = failure_mode)) +
+  geom_col(width = 0.55, colour = "white", linewidth = 0.3) +
+  geom_vline(xintercept = 0.70, linetype = "dashed",
+             colour = "grey30", linewidth = 0.5) +
+  geom_text(aes(label = sprintf("%.0f%%", prop_valid_models * 100)),
+            hjust = -0.15, size = 3.2, colour = "grey20") +
+  scale_x_continuous(
+    limits = c(0, 1.08),
+    labels = scales::percent_format(accuracy = 1),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(values = failure_colours, name = "Dominant issue") +
+  labs(
+    x = "Proportion of windows passing all diagnostics",
+    y = NULL
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position  = "right",
+    legend.key.size  = unit(0.4, "cm"),
+    panel.grid.major.x = element_line(colour = "grey92", linewidth = 0.3),
+    plot.subtitle    = element_text(colour = "grey50", size = 9)
+  )
 ```
 
 ------------------------------------------------------------------------
@@ -499,13 +748,13 @@ write.csv(benchmark_results,
 
 ### 5.2 Selected model parameters
 
-Four separate transform keys are exported, one per response variable. `check_models_performance.qmd` reads each key and applies the corresponding transformation before z-scoring. The selected configuration is row 1 of `global_optimization`, which is already sorted lexicographically (highest validity, then highest R²).
+Four separate transform keys are exported, one per response variable.
+`check_models_performance.qmd` reads each key and applies the corresponding
+transformation before z-scoring within each rolling window. The selected
+configuration is row 1 of `global_optimization`, sorted lexicographically
+(highest validity, then highest R²).
 
 ```{r export-parameters}
-# Row 1 is the winner: highest combined validity, then highest R² among ties
-final_selection <- global_optimization %>%
-  slice(1)
-
 params_to_save <- list(
   selected_window          = final_selection$window,
   selected_min_rate        = final_selection$min_rate,
@@ -523,7 +772,7 @@ message(sprintf(
   paste0("Best config: window = %d days | min_rate = %.1f\n",
          "  validity = %.3f | R2 = %.3f | score = %.3f\n",
          "  root: %s | fauna: %s | mc1: %s | mc2: %s"),
-  final_selection$window,
+  as.integer(final_selection$window),
   final_selection$min_rate,
   final_selection$combined_validity,
   final_selection$mean_r2,
