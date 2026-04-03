@@ -1,0 +1,5 @@
+{
+  "time_step": ["1 day"],
+  "step_hours": [24],
+  "steps_per_day": [1]
+}

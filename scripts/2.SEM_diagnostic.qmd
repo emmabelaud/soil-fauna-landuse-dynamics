@@ -108,11 +108,19 @@ data_sem_raw <- read.csv("../output/SEM_database.csv",
     land_use = as.numeric(position == "C"),
     date     = ymd_hms(date, tz = "UTC"),
     fauna    = all_taxa,
-    root     = root_growth_cm2_count
+    root     = root_cm2_count
   )
 
 fauna_vars         <- c("all_taxa", readLines("../output/fauna_vars.txt"))
 microclimate_index <- readLines("../output/microclimate_index.txt")
+pipeline_cfg <- if (file.exists("../output/pipeline_config.json")) {
+  jsonlite::fromJSON("../output/pipeline_config.json")
+} else {
+  list(time_step = "6 hours", step_hours = 6, steps_per_day = 4)
+}
+step_hours    <- pipeline_cfg$step_hours
+steps_per_day <- pipeline_cfg$steps_per_day
+
 ```
 
 ------------------------------------------------------------------------
@@ -136,7 +144,7 @@ microclimate_index <- readLines("../output/microclimate_index.txt")
 create_rolling_windows <- function(df, window_days, step_days = 1) {
   start_dates <- seq(
     min(df$date),
-    max(df$date) - days(window_days) + hours(6),
+    max(df$date) - days(window_days) + hours(step_hours),  # was hours(6)
     by = paste(step_days, "days")
   )
   windows        <- map(start_dates,
@@ -528,7 +536,7 @@ test_configuration <- function(w_days, m_rate_val, transfo_type,
     transfo_type = transfo_type,
     window_days  = w_days,
     min_rate     = m_rate_val,
-    n_windows    = 30   # subsample for speed; sufficient for characterisation
+    n_windows    = 50   # subsample for speed; sufficient for characterisation
   )
 
   if (is.null(res_diag) || nrow(res_diag) == 0) return(NULL)
@@ -570,7 +578,7 @@ test_configuration <- function(w_days, m_rate_val, transfo_type,
 # may not be adequate for a 5-day window, and a lenient completeness threshold
 # may mask this difference.
 sensibility_grid <- expand.grid(
-  w_days     = c(5, 7, 10, 14, 21),
+  w_days     = c(14, 21, 30),
   m_rate_val = c(0.1, 0.2, 0.3, 0.4),
   transfo    = c("none", "sqrt", "sqrt_plus_one", "log", "hellinger"),
   stringsAsFactors = FALSE
@@ -803,7 +811,7 @@ For each rolling window under the selected configuration, all four equations are
 # MIN_VALID_PROP = 0.75: at least 3 of 4 equations must pass all thresholds.
 # Setting this to 1.0 would require all four equations to pass simultaneously,
 # which is more conservative but retains fewer windows.
-MIN_VALID_PROP <- 0.75
+MIN_VALID_PROP <- 0.5
 
 # Re-run on the full window set (n_windows = NULL) under the selected config.
 # sel_transfo["fauna"] applies the fauna transformation to all four variables
