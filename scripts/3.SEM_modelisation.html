@@ -3497,7 +3497,7 @@ background-color: #ffe6e6;
 <span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">orientation =</span> <span class="fu">as.factor</span>(orientation),</span>
 <span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">land_use    =</span> <span class="fu">as.numeric</span>(position <span class="sc">==</span> <span class="st">&quot;C&quot;</span>),</span>
 <span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">date        =</span> <span class="fu">ymd_hms</span>(date, <span class="at">tz =</span> <span class="st">&quot;UTC&quot;</span>),</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">root        =</span> root_growth_cm2_count_24h</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">root        =</span> root_cm2_count</span>
 <span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>fauna_vars         <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;all_taxa&quot;</span>, <span class="fu">readLines</span>(<span class="st">&quot;../output/fauna_vars.txt&quot;</span>))</span>
@@ -4050,25 +4050,25 @@ background-color: #ffe6e6;
 <div class="cell-output cell-output-stdout">
 <pre><code>
 --- Taxon: all_taxa ---
-  152 / 591 windows retained.
+  391 / 608 windows retained.
 
 --- Taxon: acari ---
-  152 / 591 windows retained.
+  391 / 608 windows retained.
 
 --- Taxon: gastropoda ---
-  152 / 591 windows retained.
+  391 / 608 windows retained.
 
 --- Taxon: collembola ---
-  152 / 591 windows retained.
+  391 / 608 windows retained.
 
 --- Taxon: diplopoda ---
-  152 / 591 windows retained.
+  391 / 608 windows retained.
 
 --- Taxon: symphyla ---
-  152 / 591 windows retained.
+  391 / 608 windows retained.
 
 --- Taxon: enchytraeidae ---
-  152 / 591 windows retained.</code></pre>
+  391 / 608 windows retained.</code></pre>
 </div>
 <div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="fu">sprintf</span>(<span class="st">&quot;SEMs complete: %d coefficient rows across %d taxa.&quot;</span>,</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>                <span class="fu">nrow</span>(sem_results_raw), <span class="fu">n_distinct</span>(sem_results_raw<span class="sc">$</span>taxon)))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -4873,7 +4873,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-132"><a href="#cb16-132" aria-hidden="true" tabindex="-1"></a><span class="in">    orientation = as.factor(orientation),</span></span>
 <span id="cb16-133"><a href="#cb16-133" aria-hidden="true" tabindex="-1"></a><span class="in">    land_use    = as.numeric(position == &quot;C&quot;),</span></span>
 <span id="cb16-134"><a href="#cb16-134" aria-hidden="true" tabindex="-1"></a><span class="in">    date        = ymd_hms(date, tz = &quot;UTC&quot;),</span></span>
-<span id="cb16-135"><a href="#cb16-135" aria-hidden="true" tabindex="-1"></a><span class="in">    root        = root_growth_cm2_count_24h</span></span>
+<span id="cb16-135"><a href="#cb16-135" aria-hidden="true" tabindex="-1"></a><span class="in">    root        = root_cm2_count</span></span>
 <span id="cb16-136"><a href="#cb16-136" aria-hidden="true" tabindex="-1"></a><span class="in">  )</span></span>
 <span id="cb16-137"><a href="#cb16-137" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb16-138"><a href="#cb16-138" aria-hidden="true" tabindex="-1"></a><span class="in">fauna_vars         &lt;- c(&quot;all_taxa&quot;, readLines(&quot;../output/fauna_vars.txt&quot;))</span></span>
