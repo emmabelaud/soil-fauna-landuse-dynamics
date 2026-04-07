@@ -788,15 +788,7 @@ h3_indirect_win <- indirect_effects %>%
 
 # Season derived from date_start for pipeline-version independence
 h3_win_raw <- bind_rows(h3_direct_win, h3_indirect_win) %>%
-  filter(path_id %in% pathway_focus) %>%
-  mutate(
-    season = factor(case_when(
-      month(date_start) %in% 3:5  ~ "Spring",
-      month(date_start) %in% 6:8  ~ "Summer",
-      month(date_start) %in% 9:11 ~ "Autumn",
-      TRUE                         ~ "Winter"
-    ), levels = season_order)
-  )
+  filter(path_id %in% pathway_focus) 
 
 # Pathway-matched community β (signed) — one row per path_id × date_start
 comm_beta_win <- h3_win_raw %>%
@@ -843,7 +835,7 @@ compute_cv <- function(df) {
 }
 
 h3_cv <- h3_taxa_win %>%
-  group_by(path_id, date_start, season) %>%
+  group_by(path_id, date_start) %>%
   group_modify(~ compute_cv(.x)) %>%
   ungroup() %>%
   # Attach pathway-matched, signed community β
@@ -968,7 +960,7 @@ p_cv <- h3_cv %>%
   geom_vline(xintercept = 0, colour = "grey70", linewidth = 0.3,
              linetype = "dashed") +
 
-  # Window observations — colour by pathway, shape by season
+  # Window observations — colour by pathway
   geom_point(aes(colour = path_id),
              alpha = 0.55, size = 1.2) +
 
