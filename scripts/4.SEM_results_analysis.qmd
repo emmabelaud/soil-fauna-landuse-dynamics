@@ -1059,7 +1059,7 @@ annot_pos <- h3_cv %>%
     .groups = "drop"
   ) %>%
   left_join(gls_results, by = "path_id") %>%
-  mutate(path_id = factor(path_id, levels = pathway_focus))  # ADD THIS
+  mutate(path_id = factor(path_id, levels = pathway_focus)) 
 ```
 
 ### Dual-axis temporal panel helper
@@ -1133,12 +1133,12 @@ make_dual_panel <- function(pid, show_xaxis = TRUE) {
     geom_smooth(aes(y = cv),
                 method = "loess", span = 0.10, se = FALSE,
                 colour = path_col, linetype = path_ltype,
-                linewidth = 0.8) +
+                linewidth = 0.85) +
     # LOESS |community β| smoother rescaled to CV axis (grey dashed)
     geom_smooth(aes(y = rescale_b(community_beta)),
                 method = "loess", span = 0.10, se = FALSE,
                 colour = "grey40", linetype = "solid",
-                linewidth = 0.45) +
+                linewidth = 0.35) +
     scale_y_continuous(
       name     = paste0("CV"),
       limits   = cv_rng,
