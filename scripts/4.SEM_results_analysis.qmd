@@ -1144,7 +1144,7 @@ make_dual_panel <- function(pid, show_xaxis = TRUE) {
       limits   = cv_rng,
       sec.axis = sec_axis(
         transform = rescale_cv_b,
-        name      = "|Community \u03b2|)"
+        name      = "|Community \u03b2|"
       )
     ) +
     scale_x_date(
