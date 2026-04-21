@@ -1,60 +1,64 @@
 ---
-title: "SEM database edition"
+title: |
+  SEM database assembly
+
 author: "Emma Belaud"
 format:
   html:
-    css: css/styles.css  
+    css: css/styles.css
     embed-resources: true
     code-tools: true
     toc: true
     toc-depth: 4
-execute: 
+    number-sections: true
+execute:
   warning: false
   message: false
   echo: true
 ---
 
-## Overview
+::: {.callout-note appearance="simple"}
+## Purpose of this document
 
-### Role in the pipeline
+This script is the **first step** of the SEM pipeline. It assembles all input variables from raw sensor and image data into a single analysis-ready database. Its outputs feed directly into:
 
-This script is the **first step** of the SEM pipeline. It assembles all input variables from raw sensor and image data into a single analysis-ready database, which feeds directly into:
-
-2.  `sem_diagnostic.qmd` — sensitivity analysis to select the optimal model configuration
-3.  `check_models_performance.qmd` — full rolling-window SEM execution
-4.  `results_visualisation.qmd` — figure production and ecological interpretation
-
-### What this script produces
+-   `2_SEM_diagnostic.qmd` — sensitivity analysis to select the optimal model configuration
+-   `3_SEM_modelisation.qmd` — full rolling-window SEM execution
+-   `4_SEM_results_analysis.qmd` — figure production and ecological interpretation
 
 | Output | File | Description |
 |------------------------|------------------------|------------------------|
-| Main SEM database | `SEM_database.csv` | One row per scanner × 6-hour time step, with fauna counts, environmental variables, root metrics, and season labels |
-| Taxa list | `fauna_vars.txt` | Names of invertebrate taxa retained for modelling (≥ 8 % of total observations) |
+| Main SEM database | `SEM_database.csv` | One row per scanner × time step, with fauna counts, environmental variables, root metrics, and season labels |
+| Taxa list | `fauna_vars.txt` | Names of invertebrate taxa retained for modelling (≥ 5% of total observations) |
 | Microclimate indices | `microclimate_index.txt` | The two most informative and orthogonal microclimatic summary variables, selected by PCA |
+| Pipeline config | `pipeline_config.json` | Time step, step_hours, steps_per_day |
+:::
 
-### Data sources and processing steps
+------------------------------------------------------------------------
+
+# Data sources and processing steps
 
 Five data streams are integrated:
 
 | Step | Source | Key processing |
 |------------------------|------------------------|------------------------|
-| **1. Fauna detections** | In-situ scanners images | Filter to 6-hour scan times; recode fine taxa to higher taxonomic levels; fill unobserved taxon–date combinations with 0 (absent) vs. NA (missing image) |
+| **1. Fauna detections** | In-situ scanner images | Filter to canonical scan times; recode fine taxa to higher levels; fill unobserved combinations with 0 (absent) vs. NA (missing image) |
 | **2. Soil probes** | DIAMS sensors | Join by date × depth × position |
-| **3. Air probes** | DIAMS sensors | Join by date × position |
-| **4. Microclimatic indices** | Derived from probes | Compute five rolling-window indices (median, amplitude, rate of change, max, min) per variable; select the two most orthogonal via PCA (cos² ≥ 0.7) |
-| **5. Root density** | Root pixel count images | Compute 9-day and 24-hour growth metrics using backward rolling joins (data.table); convert pixel counts to cm² |
+| **3. Microclimatic indices** | Derived from probes | Compute five rolling-window indices per variable; select the two most orthogonal via PCA (cos² ≥ 0.8) |
+| **4. Root density** | Root pixel count images | Compute 9-day and 24-hour growth metrics using backward rolling joins (`data.table`); convert pixel counts to cm² |
+| **5. Seasons** | Standard calendar dates | Equinox/solstice boundaries, 2023–2025 |
 
-### Key design choices
+**Key design choices**
 
-**Taxonomic lumping** — Several fine-level taxa (e.g. *julida*, *polydesmida*) are promoted to their parent group (e.g. *diplopoda*) when they are too rare to model independently. The mapping is explicit and documented in the code.
+*Taxonomic lumping* — Fine-level taxa (e.g. *julida*, *polydesmida*) are promoted to their parent group (e.g. *diplopoda*) when too rare to model independently. The mapping is explicit in the code.
 
-**Missing data encoding** — The distinction between 0 (taxon absent, scanner active) and NA (scanner produced no image) is preserved throughout the pipeline and propagates into the SEM database. Downstream scripts filter windows by data completeness rate rather than imputing.
+*Missing data encoding* — The distinction between 0 (taxon absent, scanner active) and NA (scanner produced no image) is preserved throughout the pipeline. Downstream scripts filter windows by data completeness rate rather than imputing.
 
-**Microclimate dimensionality reduction** — Rather than using raw temperature and humidity directly, five indices summarise each variable over a rolling window (following Grooss et al., in prep.). PCA then selects the two indices that are both well-represented on the first two axes (cos² ≥ 0.7) and maximally orthogonal, minimising collinearity in the SEM.
+*Microclimate dimensionality reduction* — Five indices summarise each variable over a rolling window (following Grooss et al., 2026). PCA then selects the two indices that are both well-represented on the first two PCA axes (cos² ≥ 0.8) and maximally orthogonal, minimising collinearity in the SEM.
 
 ------------------------------------------------------------------------
 
-## 0. Package loading
+# Package loading
 
 ```{r packages}
 library(tidyverse)   # Data wrangling and visualisation
@@ -67,9 +71,9 @@ library(data.table)  # High-performance joins for root data
 
 ------------------------------------------------------------------------
 
-## 1. Pipeline configuration
+# Pipeline configuration
 
-```{r}
+```{r config}
 # Time step options:
 #   "6 hours"  → raw scan resolution (default)
 #   "1 day"    → daily aggregates
@@ -91,11 +95,15 @@ NATIVE_HOURS    <- c(0, 6, 12, 18)
 
 ------------------------------------------------------------------------
 
-## 2. Fauna data
+# Fauna data
 
-### 2.1 Loading and cleaning raw detections
+## Loading and cleaning raw detections
 
-Images are scanned every 6 hours (00:00, 06:00, 12:00, 18:00). Scanner IDs encode positional metadata: - **Characters 4** → position (A, B, C): tree cover / intermediate / cultivated - **Characters 5–6** → depth (20 or 50 cm) - **Character 8** → orientation (O: West, E: East)
+Images are acquired every 6 hours (00:00, 06:00, 12:00, 18:00). Scanner IDs encode positional metadata:
+
+-   **Character 4** → position (A, B, C): tree cover / intermediate / cultivated
+-   **Characters 5–6** → depth (20 or 50 cm)
+-   **Character 8** → orientation (O: West, E: East)
 
 ```{r load-fauna}
 df_raw <- read.csv("../data/fauna_data.csv",
@@ -127,11 +135,9 @@ df_raw <- df_raw %>%
   filter(minute == 0, hour %in% NATIVE_HOURS)
 ```
 
-------------------------------------------------------------------------
+## Build invertebrate taxa list from taxonomic hierarchy
 
-### 2.2 Build invertebrate taxa list from taxonomic hierarchy
-
-Reads the hierarchical taxonomy JSON, extracts terminal (leaf) taxa under the "fauna" node, applies taxonomic lumping for small or structurally similar groups, and retains only taxa that represent ≥ 8 % of total observations.
+Reads the hierarchical taxonomy JSON, extracts terminal (leaf) taxa under the "fauna" node, applies taxonomic lumping for small or structurally similar groups, and retains only taxa that represent ≥ 5% of total observations.
 
 ```{r taxa-list}
 # Load hierarchical taxonomy
@@ -173,12 +179,8 @@ rename_map <- c(
   "lithobiomorpha"  = "chilopoda"
 )
 
-# Remove promoted children; add promoted parent taxa instead
-#leaves_updated <- setdiff(leaves, names(rename_map))
-#leaves_updated <- c(leaves_updated, rename_map)
-
 # Filter observations: recode promoted taxa, keep leaves only,
-# and retain taxa representing ≥ 8 % of all observations
+# and retain taxa representing ≥ 5% of all observations
 taxa_list <- df_raw %>%
   mutate(Predicted.class = ifelse(
     Predicted.class %in% names(rename_map),
@@ -197,9 +199,7 @@ taxa_list <- df_raw %>%
 writeLines(unique(taxa_list$Predicted.class), con = "../output/fauna_vars.txt")
 ```
 
-------------------------------------------------------------------------
-
-### 2.3 Function: filter taxa by minimum occurrence count
+## Function: filter taxa by minimum occurrence count
 
 Recodes specific taxa to a higher taxonomic level and, optionally, drops taxa below a given occurrence threshold. Set `filter_taxa = FALSE` to keep all taxa.
 
@@ -241,9 +241,7 @@ filter_taxa_df <- function(df, filter_taxa = TRUE, min_occurrences = 3000) {
 df_filtered <- filter_taxa_df(df_raw, filter_taxa = FALSE)
 ```
 
-------------------------------------------------------------------------
-
-### 2.4 Build the complete abundance matrix
+## Build the complete abundance matrix
 
 Creates a full time × scanner grid, counts detections per taxon per image, and fills unobserved taxon–date–scanner combinations with **0** (taxon absent). Images with no scan at all remain **NA** (data missing).
 
@@ -257,7 +255,7 @@ complete_grid <- expand_grid(date = seq_time, scanner = unique(df_raw$scanner))
 
 # Aggregate counts to the chosen resolution before pivoting
 df_complete <- df_filtered %>%
-  mutate(date = floor_date(date, TIME_STEP)) %>%   # ← key line
+  mutate(date = floor_date(date, TIME_STEP)) %>%
   group_by(taxa_levelup, date, scanner, depth, position, orientation) %>%
   reframe(count = n()) %>%
   mutate(presence = 1) %>%
@@ -283,11 +281,14 @@ df_complete <- df_complete %>%
   ungroup()
 ```
 
-------------------------------------------------------------------------
+## Figure 1 — Missing data by scanner and month
 
-### 2.5 Visualise missing data by scanner and month
-
-```{r plot-missing-data}
+```{r fig-s1-missing}
+#| fig-cap: >
+#|   **Proportion of missing vs. acquired images per scanner and
+#|   month.** Each bar stack sums to 1. Orange = image acquired; grey = missing
+#|   (scanner downtime or quality-control filter). Facets are arranged by
+#|   scanner identity (rows) and calendar year (columns).
 df_complete %>%
   mutate(
     year  = as.factor(year(date)),
@@ -310,16 +311,14 @@ df_complete %>%
   ) +
   theme_minimal() +
   theme(
-    strip.text   = element_text(face = "bold"),
-    axis.text.x  = element_text(angle = 45, hjust = 1),
+    strip.text      = element_text(face = "bold"),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
-    plot.title   = element_text(size = 16)
+    plot.title      = element_text(size = 16)
   )
 ```
 
-------------------------------------------------------------------------
-
-### 2.6 Define land-use grouping and prepare SEM base table
+## Land-use grouping and SEM base table
 
 Two land-use categories are compared:
 
@@ -342,20 +341,16 @@ data_sem <- df_complete %>%
   )
 ```
 
-------------------------------------------------------------------------
-
-### 2.7 Function: filter dates with insufficient scanner coverage
-
-Dates where fewer than `min_images` scanners returned valid images are flagged as low-quality. Set `apply_filter = TRUE` to drop those dates before plotting.
+## Function: filter dates with insufficient scanner coverage
 
 ```{r filter-dates-function}
 #' Flag (and optionally remove) dates with low scanner coverage
 #'
 #' @param data       SEM dataframe.
 #' @param min_images Integer. Minimum number of active scanners required.
-#' @param apply_filter Logical. If TRUE, remove flagged dates before plotting.
+#' @param apply_filter Logical. If TRUE, remove flagged dates.
 #' @return The input dataframe with added columns `images_count` and
-#'         `dates_to_keep`, plus a coverage barplot.
+#'         `dates_to_keep`, plus a coverage barplot (Figure S1.2).
 filter_data <- function(data, min_images = 6, apply_filter = FALSE) {
 
   data <- data %>%
@@ -372,11 +367,9 @@ filter_data <- function(data, min_images = 6, apply_filter = FALSE) {
     )
 
   data_for_plot <- data
-  if (apply_filter) {
-    data_for_plot <- data_for_plot %>% filter(dates_to_keep == 1)
-  }
+  if (apply_filter) data_for_plot <- data_for_plot %>% filter(dates_to_keep == 1)
 
-  # Plot coverage retention
+  # Figure S1.2
   data_for_plot %>%
     group_by(scanner, year, month, dates_to_keep) %>%
     summarise(n = n(), .groups = "drop") %>%
@@ -410,7 +403,7 @@ data_sem <- filter_data(data_sem, min_images = 6, apply_filter = FALSE)
 
 ------------------------------------------------------------------------
 
-## 3. Environmental data
+# Environmental data
 
 ```{r load-env-data}
 # Soil temperature and humidity (position × depth × date)
@@ -429,17 +422,17 @@ data_sem <- data_sem %>%
 
 ------------------------------------------------------------------------
 
-## 4. Microclimatic indices
+# Microclimatic indices
 
-### 4.1 Index parameters
+## Index parameters
 
 ```{r index-params}
 missing_data_rate <- 0.3     # Max fraction of NAs tolerated within a window
 ```
 
-### 4.2 Compute rolling microclimatic indices
+## Compute rolling microclimatic indices
 
-Following Grooss et al. (in prep.), five indices summarise each environmental variable over the rolling window:
+Following Grooss et al. (2026), five indices summarise each environmental variable over the rolling window:
 
 | Index | Description |
 |------------------------------------|------------------------------------|
@@ -453,24 +446,19 @@ Following Grooss et al. (in prep.), five indices summarise each environmental va
 vars_to_index <- c("temp_soil", "hum_soil")
 index_names   <- c("median", "amplitude", "change_ratio", "max", "min")
 
-#' Compute five summary indices for a numeric vector
-#'
+#' Compute five summary indices for a numeric vector.
 #' Returns all-NA if more than `missing_data_rate` of values are missing.
 index_compute_function <- function(vec) {
   if (mean(is.na(vec)) > missing_data_rate) {
     return(c(median = NA, amplitude = NA, change_ratio = NA, max = NA, min = NA))
   }
-
   qs    <- quantile(vec, c(0.025, 0.05, 0.95, 0.975), na.rm = TRUE)
   diffs <- diff(round(vec, 6))
-
-  c(
-    median       = median(vec, na.rm = TRUE),
-    amplitude    = qs[3] - qs[2],           # IQR-like spread
+  c(median       = median(vec, na.rm = TRUE),
+    amplitude    = qs[3] - qs[2],
     change_ratio = median(diffs, na.rm = TRUE),
     max          = unname(qs[4]),
-    min          = unname(qs[1])
-  )
+    min          = unname(qs[1]))
 }
 
 # Apply rolling window within each position × orientation × depth group
@@ -493,16 +481,16 @@ data_sem_indices <- data_sem %>%
   ungroup()
 ```
 
-### 4.3 Select the two most informative, orthogonal indices via PCA
+## Select the two most informative, orthogonal indices via PCA
 
-A PCA is performed on all computed indices. The two well-represented variables (cos² ≥ 0.7) with the smallest mutual cosine (i.e. most orthogonal in PCA space) are retained for the SEM.
+A PCA is performed on all computed indices. The two well-represented variables (cos² ≥ 0.8) with the smallest mutual cosine (most orthogonal in PCA space) are retained for the SEM.
 
 ```{r select-indices}
 # Prepare complete-case matrix of all indices
 microclim_data <- data_sem_indices %>%
   select(starts_with("temp_soil_"), starts_with("hum_soil_")) %>%
   drop_na() %>%
-  select(where(~ sd(.x, na.rm = TRUE) > 0))  # Remove zero-variance columns
+  select(where(~ sd(.x, na.rm = TRUE) > 0))
 
 # PCA (2 axes)
 acp_microclimate <- dudi.pca(microclim_data, scannf = FALSE, nf = 2)
@@ -519,18 +507,21 @@ good_vars <- var_names[var_cos2 >= 0.8]
 cos_angle <- function(v1, v2) sum(v1 * v2) / (sqrt(sum(v1^2)) * sqrt(sum(v2^2)))
 
 # Among well-represented variables, find the most orthogonal pair
-pair_matrix     <- combn(good_vars, 2)
-i_min           <- which.min(apply(pair_matrix, 2, function(p) {
+pair_matrix        <- combn(good_vars, 2)
+i_min              <- which.min(apply(pair_matrix, 2, function(p) {
   cos_angle(var_coord[p[1], ], var_coord[p[2], ])
 }))
 microclimate_index <- pair_matrix[, i_min]
-#microclimate_index <- c("temp_soil_amplitude", "hum_soil_amplitude") 
 
 cat("Microclimate indices selected:", microclimate_index[1], "and", microclimate_index[2])
 
 # Add the two selected indices back to the main dataframe
 data_sem <- data_sem %>%
-  left_join(data_sem_indices %>%select(date, position, orientation, depth, all_of(microclimate_index)),by = c("date", "position", "orientation", "depth"))
+  left_join(
+    data_sem_indices %>%
+      select(date, position, orientation, depth, all_of(microclimate_index)),
+    by = c("date", "position", "orientation", "depth")
+  )
 
 # Export selected index names for downstream scripts
 writeLines(microclimate_index, con = "../output/microclimate_index.txt")
@@ -538,28 +529,25 @@ writeLines(microclimate_index, con = "../output/microclimate_index.txt")
 
 ------------------------------------------------------------------------
 
-## 5. Root density data
+# Root density data
 
 Root growth is computed by comparing pixel counts between two time points using high-performance rolling joins (`data.table`). Two temporal lags are calculated:
 
 -   **9-day lag** (tolerance: ± 2 days) — captures medium-term root expansion
 -   **1-day lag** (tolerance: ± 12 hours) — captures short-term root growth
 
-### 5.1 Constants
+## Constants
 
 ```{r root-constants}
 dpi              <- 1200
 pixels_per_cm_sq <- (dpi / 2.54)^2   # Conversion factor: pixels → cm²
 ```
 
-### 5.2 Load and parse root pixel counts
+## Load and parse root pixel counts
 
 ```{r load-roots}
-# fread for high-performance CSV loading of large files
 root_density_raw <- fread("../data/root_pixels_count.csv")
 
-# Parse the structured filename to extract date and scanner metadata
-# Filename format: <bloc>_<pos>_<orient>_<yr>-<mon>-<day>H<hr>M<min>.<ext>
 root_density <- root_density_raw[, `:=`(
   image_name = sub("\\.png$", "", file)
 )][, c("bloc", "pos", "orient", "yr", "mon", "day", "hr", "min", "ext") :=
@@ -568,14 +556,9 @@ root_density <- root_density_raw[, `:=`(
 
 root_density[, date   := as.POSIXct(date)]
 root_density[, minute := minute(date)]
-
-# Correct MM:01 artefact (same scanner offset correction as for fauna data)
 root_density[minute == 1, date := date - 60]
-
-# Keep only 6-hour canonical scan times
 root_density <- root_density[minute(date) == 0 & hour(date) %in% NATIVE_HOURS]
 
-# Derive structural factors from scanner position string
 root_density[, `:=`(
   scanner     = as.factor(paste(pos, orient, sep = "_")),
   depth       = as.factor(substr(pos, 2, 3)),
@@ -583,14 +566,12 @@ root_density[, `:=`(
   orientation = as.factor(orient)
 )]
 
-# Sort and index for binary-search joins
 setkey(root_density, depth, position, orientation, date)
 ```
 
-### 5.3 Rolling joins to retrieve lagged pixel counts
+## Rolling joins to retrieve lagged pixel counts
 
 ```{r root-lag-joins}
-# Define target dates for each lag window
 root_density[, `:=`(
   date_target_9d = date - days(9),
   date_target_1d = date - days(1)
@@ -602,7 +583,6 @@ ref_9d <- root_density[, .(depth, position, orientation,
                            pixels_9d    = root_pixels_count)]
 setkey(ref_9d, depth, position, orientation, date_found_9d)
 
-# roll = +Inf: match the nearest earlier date (backward-looking)
 root_density <- ref_9d[root_density,
                        on  = .(depth, position, orientation,
                                date_found_9d = date_target_9d),
@@ -628,16 +608,14 @@ root_density[, root_pixels_count_lag_1d := ifelse(diff_1d <= tol_1d_secs, pixels
 root_density[, c("date_found_1d", "pixels_1d", "diff_1d") := NULL]
 ```
 
-### 5.4 Compute root area metrics
+## Compute root area metrics
 
 ```{r root-metrics}
-# Pixel differences between current and lagged images
 root_density[, `:=`(
   root_growth_pixel_count    = root_pixels_count - root_pixels_count_lag,
   root_growth_pixel_count_1d = root_pixels_count - root_pixels_count_lag_1d
 )]
 
-# Convert pixel counts to area (cm²)
 root_density[, `:=`(
   root_cm2_count            = root_pixels_count / pixels_per_cm_sq,
   root_growth_cm2_count     = root_growth_pixel_count    / pixels_per_cm_sq,
@@ -649,7 +627,7 @@ root_density[, `:=`(
 root_density[root_growth_cm2_count_24h < 0, root_growth_cm2_count_24h := 0]
 ```
 
-### 5.5 Merge root metrics into the SEM dataframe
+## Merge root metrics into the SEM dataframe
 
 ```{r merge-roots}
 setDT(data_sem)
@@ -666,7 +644,7 @@ data_sem <- merge(
 
 ------------------------------------------------------------------------
 
-## 6. Season variable
+# Season variable
 
 Seasons are defined by astronomical boundaries (equinoxes and solstices), covering 2023–2025.
 
@@ -674,7 +652,6 @@ Seasons are defined by astronomical boundaries (equinoxes and solstices), coveri
 years  <- 2023:2025
 season <- c("spring", "summer", "autumn", "winter")
 
-# Build a lookup table of day → season
 seasons <- bind_rows(lapply(years, function(an) {
   tibble(
     season     = season,
@@ -686,7 +663,6 @@ seasons <- bind_rows(lapply(years, function(an) {
   )
 }))
 
-# Expand to one row per calendar day, then left-join to the main dataframe
 data_sem <- data_sem %>%
   mutate(day = as.Date(date)) %>%
   left_join(
@@ -701,67 +677,41 @@ data_sem <- data_sem %>%
 
 ------------------------------------------------------------------------
 
-## 7. Export
-
-```{r export}
-data_sem$date <- format(data_sem$date, "%Y-%m-%d %H:%M:%S")
-write.csv(data_sem, "../output/SEM_database.csv", row.names = FALSE, quote = TRUE)
-
-jsonlite::write_json(
-  list(
-    time_step       = TIME_STEP,
-    step_hours      = step_hours,
-    steps_per_day   = steps_per_day
-  ),
-  "../output/pipeline_config.json",
-  pretty = TRUE
-)
-```
-
-------------------------------------------------------------------------
-
-## 8. Data summary
+# Data summary
 
 ```{r data-summary}
 #| echo: false
-
-# ── DATA SUMMARY ───────────────────────────────────────────────────────
 
 n_images      <- nrow(df_raw %>% select(image_name) %>% unique())
 period_start  <- min(df_raw$date, na.rm = TRUE)
 period_end    <- max(df_raw$date, na.rm = TRUE)
 period_days   <- as.numeric(difftime(period_end, period_start, units = "days"))
 
-n_occ_fauna     <- nrow(df_raw)
-n_occ_fauna_filtered   <- nrow(taxa_list)
-
-n_taxa        <- length(unique(taxa_list$Predicted.class))
-taxa_names    <- paste(sort(unique(taxa_list$Predicted.class)), collapse = ", ")
-
-n_scanners    <- length(unique(df_raw$scanner))
-scanners_A    <- length(unique(df_raw$scanner[df_raw$position == "A"]))
-scanners_C    <- length(unique(df_raw$scanner[df_raw$position == "C"]))
-
-n_rows_total  <- nrow(data_sem)
-n_rows_na     <- sum(is.na(data_sem$all_taxa))
-prop_missing  <- round(n_rows_na / n_rows_total * 100, 1)
+n_occ_fauna          <- nrow(df_raw)
+n_occ_fauna_filtered <- nrow(taxa_list)
+n_taxa               <- length(unique(taxa_list$Predicted.class))
+taxa_names           <- paste(sort(unique(taxa_list$Predicted.class)), collapse = ", ")
+n_scanners           <- length(unique(df_raw$scanner))
+scanners_A           <- length(unique(df_raw$scanner[df_raw$position == "A"]))
+scanners_C           <- length(unique(df_raw$scanner[df_raw$position == "C"]))
+n_rows_total         <- nrow(data_sem)
+n_rows_na            <- sum(is.na(data_sem$all_taxa))
+prop_missing         <- round(n_rows_na / n_rows_total * 100, 1)
 
 missing_by_scanner <- data_sem %>%
   group_by(scanner, position) %>%
-  summarise(
-    n_total   = n(),
-    n_missing = sum(is.na(all_taxa)),
-    pct_miss  = round(n_missing / n_total * 100, 1),
-    .groups   = "drop"
-  ) %>%
+  summarise(n_total   = n(),
+            n_missing = sum(is.na(all_taxa)),
+            pct_miss  = round(n_missing / n_total * 100, 1),
+            .groups   = "drop") %>%
   arrange(position, scanner)
 
 cat(sprintf("Period          : %s → %s (%.0f days)\n",
             format(period_start, "%Y-%m-%d"),
             format(period_end,   "%Y-%m-%d"), period_days))
-cat(sprintf("Images (total)  : %s\n",   format(n_images,    big.mark = ",")))
-cat(sprintf("Occ. raw        : %s\n",   format(n_occ_fauna,   big.mark = ",")))
-cat(sprintf("Occ. filtered   : %s\n",   format(n_occ_fauna_filtered, big.mark = ",")))
+cat(sprintf("Images (total)  : %s\n",   format(n_images,             big.mark = ",")))
+cat(sprintf("Occ. raw        : %s\n",   format(n_occ_fauna,           big.mark = ",")))
+cat(sprintf("Occ. filtered   : %s\n",   format(n_occ_fauna_filtered,  big.mark = ",")))
 cat(sprintf("Taxa retained   : %d  [%s]\n", n_taxa, taxa_names))
 cat(sprintf("Scanners        : %d  (A=%d treed, C=%d cultivated)\n",
             n_scanners, scanners_A, scanners_C))
@@ -772,3 +722,41 @@ cat(sprintf("Missing images  : %s / %s  (%.1f%%)\n",
 cat("\nMissing rate per scanner:\n")
 print(as.data.frame(missing_by_scanner), row.names = FALSE)
 ```
+
+------------------------------------------------------------------------
+
+# Export
+
+The following files are written to `../output/` for use by S2–S4:
+
+```{r export}
+data_sem$date <- format(data_sem$date, "%Y-%m-%d %H:%M:%S")
+write.csv(data_sem, "../output/SEM_database.csv", row.names = FALSE, quote = TRUE)
+
+jsonlite::write_json(
+  list(time_step     = TIME_STEP,
+       step_hours    = step_hours,
+       steps_per_day = steps_per_day),
+  "../output/pipeline_config.json",
+  pretty = TRUE
+)
+
+message(sprintf(
+  "Export complete.
+  SEM database : %s rows | %d scanners | %d taxa
+  Time step    : %s (%g h)
+  Period       : %s → %s",
+  format(n_rows_total, big.mark = ","),
+  n_scanners, n_taxa,
+  TIME_STEP, step_hours,
+  format(period_start, "%Y-%m-%d"),
+  format(period_end,   "%Y-%m-%d")
+))
+```
+
+| Output file | Contents |
+|------------------------------------|------------------------------------|
+| `SEM_database.csv` | Main modelling database (one row per scanner × time step) |
+| `fauna_vars.txt` | Retained taxa names (one per line) |
+| `microclimate_index.txt` | Selected microclimate index names (one per line) |
+| `pipeline_config.json` | TIME_STEP, step_hours, steps_per_day |

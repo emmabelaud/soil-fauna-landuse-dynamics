@@ -20,58 +20,37 @@ execute:
 ::: {.callout-note appearance="simple"}
 ## Purpose of this document
 
-This document provides the complete methodological detail for the
-pre-modelling diagnostic calibration referred to in the main text (Section
-*"Pre-modelling diagnostic calibration"*). The calibration resolves three
-structural choices — window duration, minimum data completeness, and
-variance-stabilising transformation — before the full rolling-window piecewise
-SEM is executed, preventing circular model selection.
+This script is the **second step** of the SEM pipeline, following:
 
-All code is shown and fully reproducible. Inputs are the SEM database produced
-by Script S1 (`1_database_edition.qmd`); outputs feed directly into Script S3
-(`3_SEM_modelisation.qmd`).
+-   `1_database_edition.qmd` — assembles and quality-controls the SEM database
+
+Its outputs feed directly into:
+
+-   `3_SEM_modelisation.qmd` — full rolling-window piecewise SEM execution
+-   `4_results_visualisation.qmd` — figure production and ecological interpretation
+
+This script provides the complete methodological detail for the pre-modelling diagnostic calibration referred to in the main text (Section *"Pre-modelling diagnostic calibration"*). The calibration resolves three structural choices — window duration, minimum data completeness, and variance-stabilising transformation — before the full rolling-window piecewise SEM is executed, preventing circular model selection.
 :::
 
----
+------------------------------------------------------------------------
 
 # Rationale and design
 
 ## Why calibrate before fitting the SEM? {#sec-rationale}
 
-The rolling-window piecewise SEM fits four structural equations to consecutive
-overlapping time slices of ecological data. Three upstream choices condition
-whether those equations are statistically valid:
+The rolling-window piecewise SEM fits four structural equations to consecutive overlapping time slices of ecological data. Three upstream choices condition whether those equations are statistically valid:
 
-**Window duration** ($W$, in days).
-A window must be long enough for the linear mixed-effects (LME) sub-models to
-converge with stable random-effect estimates, yet short enough to track
-within-season dynamics. Too short: the random structure is unidentifiable and
-AR(1) correlation parameters inflate residual variance. Too long: temporal
-averaging erases the ecological variation the SEM is designed to capture.
+**Window duration** ($W$, in days). A window must be long enough for the linear mixed-effects (LME) sub-models to converge with stable random-effect estimates, yet short enough to track within-season dynamics.
 
-**Minimum data completeness** ($C_{\min}$).
-Sensor downtime and quality-control filters create gaps in the time series.
-A completeness threshold defines the minimum ratio of fully observed to total
-rows within a window before that window is discarded as too sparse. Too strict:
-many windows are dropped, leaving the temporal coverage biased toward periods
-of good sensor performance. Too lenient: sparse windows produce unstable
-coefficient estimates.
+**Minimum data completeness** ($C_{\min}$). Sensor downtime and quality-control filters create gaps in the time series. A completeness threshold defines the minimum ratio of fully observed to total rows within a window before that window is discarded as too sparse. The minimum threshold for data completeness must strike a balance to avoid dropping too many windows while maintaining stable coefficient estimates.
 
-**Variance-stabilising transformation** ($f$).
-Fauna counts and root growth measures are right-skewed, with variance scaling
-roughly with the mean. The LME residuals should be approximately normal with
-constant variance. A mis-specified transformation inflates Type I error for the
-fixed-effect t-tests on path coefficients.
+**Variance-stabilising transformation** ($f$). Fauna counts and root growth measures are right-skewed, with variance scaling roughly with the mean. The LME residuals should be approximately normal with constant variance. A mis-specified transformation inflates Type I error for the fixed-effect t-tests on path coefficients.
 
-These choices cannot be validated after fitting without circularity (a
-transformation could be tuned to improve model fit on the very data it will be
-tested on). We therefore evaluate them systematically on a random subsample of
-windows before the full analysis.
+These choices cannot be validated after fitting without circularity (a transformation could be tuned to improve model fit on the very data it will be tested on). We therefore evaluate them systematically on a random subsample of windows before the full analysis.
 
 ## Structural equations tested {#sec-dag}
 
-The four structural equations encode the hypothesised causal hierarchy from
-land-use type through soil microclimate and root growth to faunal activity:
+The four structural equations encode the hypothesised causal hierarchy from land-use type through soil microclimate and root growth to faunal activity:
 
 $$\text{mc}_1 \sim \beta_1 \cdot \text{lu} \tag{S1.1}$$
 
@@ -81,29 +60,21 @@ $$\text{root} \sim \beta_3 \cdot \text{mc}_1 + \beta_4 \cdot \text{mc}_2 + \beta
 
 $$\text{fauna} \sim \beta_6 \cdot \text{mc}_1 + \beta_7 \cdot \text{mc}_2 + \beta_8 \cdot \text{root} + \beta_9 \cdot \text{lu} \tag{S1.4}$$
 
-where lu = land-use type (0 = treed, 1 = cultivated), mc$_1$ = daily maximum
-soil temperature, mc$_2$ = daily maximum soil moisture, root = root growth
-area density (cm² per image), fauna = total invertebrate activity count.
+where lu = land-use type (0 = treed, 1 = cultivated), mc$_1$ = daily maximum soil temperature, mc$_2$ = daily maximum soil moisture, root = root growth area density (cm² per image), fauna = total invertebrate activity count.
 
-At the diagnostic stage each equation is fitted **independently as a classical
-LME** rather than within the full piecewise SEM. This is intentional: the
-diagnostic criteria concern the residual structure of individual equations, and
-a piecewise SEM failure on Fisher's C would conflate structural misspecification
-with residual non-normality. Once the residual properties are acceptable,
-Script S3 assembles the four validated equations into the full piecewise SEM.
+At the diagnostic stage each equation is fitted **independently as a classical LME** rather than within the full piecewise SEM. This is intentional: the diagnostic criteria concern the residual structure of individual equations, and a piecewise SEM failure on Fisher's C would conflate structural misspecification with residual non-normality. Once the residual properties are acceptable, Script S3 assembles the four validated equations into the full piecewise SEM.
 
 ## Parameter space {#sec-grid}
 
 The calibration evaluates the full factorial combination of:
 
 | Parameter | Candidates | Notation |
-|-----------|-----------|---------|
+|----|----|----|
 | Window duration | 14, 21, 30 days | $W \in \{14, 21, 30\}$ |
 | Min. completeness | 10%, 20%, 30%, 40% | $C_{\min} \in \{0.1, 0.2, 0.3, 0.4\}$ |
 | Transformation | none, √, Freeman–Tukey, log(1+x), Hellinger | $f \in \{id, \sqrt{\cdot}, FT, \log, H\}$ |
 
-This yields **60 configurations**, each tested on a random subsample of 50
-windows for computational efficiency.
+This yields **60 configurations**, each tested on a random subsample of 100 windows for computational efficiency.
 
 The transformation candidates are:
 
@@ -115,72 +86,47 @@ $$f_{\text{log}}(x) = \log\!\left(1 + x + |\min(x)| \cdot \mathbf{1}_{[\min(x) \
 
 $$f_{\text{Hellinger}}(x) = \sqrt{\frac{x}{\sum x}} \tag{S2.4}$$
 
-The Freeman–Tukey double-square-root (S2.2) and Hellinger (S2.4) are
-particularly suited to count data with many zeros. For transformations requiring
-strictly positive input (S2.1, S2.3), a small positive shift is applied when
-$\min(x) \leq 0$.
+The Freeman–Tukey double-square-root (S2.2) and Hellinger (S2.4) are particularly suited to count data with many zeros. For transformations requiring strictly positive input (S2.1, S2.3), a small positive shift is applied when $\min(x) \leq 0$.
 
 ## Completeness definition {#sec-completeness}
 
-Completeness is defined as the ratio of fully observed to total rows within a
-window:
+Completeness is defined as the ratio of fully observed to total rows within a window:
 
 $$C(w) = \frac{|\{i \in w : \mathbf{x}_i \text{ complete}\}|}{|w|} \tag{S2.5}$$
 
-Using a relative rather than absolute criterion makes the threshold robust to
-unequal depth sampling: windows where one depth level has more observations
-than the other are not penalised, because the denominator scales accordingly.
-
----
+------------------------------------------------------------------------
 
 # Diagnostic criteria {#sec-diagnostics}
 
-For each (configuration × window × equation) triple, three residual diagnostics
-are assessed simultaneously. A window is classified as **diagnostically valid**
-only when all three criteria are satisfied concurrently.
+For each (configuration × window × equation) triple, three residual diagnostics are assessed simultaneously. A window is classified as **diagnostically valid** only when all three criteria are satisfied concurrently.
 
 ## Heteroscedasticity {#sec-hetero}
 
-We use the Spearman rank correlation between absolute normalised residuals and
-population-level fitted values as a monotone measure of variance non-constancy:
+We use the Spearman rank correlation between absolute normalised residuals and population-level fitted values as a monotone measure of variance non-constancy:
 
 $$\rho_{\text{hetero}} = \text{Spearman}\!\left(|\hat{\varepsilon}_{\text{norm}}|,\ \hat{y}\right) \tag{S3.1}$$
 
-**Criterion C1:** $|\rho_{\text{hetero}}| < 0.40$.
-A positive correlation indicates that residual variance grows with fitted value
-(the classical heteroscedastic pattern). The threshold of 0.40 is conservative
-relative to the commonly cited 0.70 but appropriate here because small windows
-amplify leverage of individual observations.
+**Criterion C1:** $|\rho_{\text{hetero}}| < 0.40$. A positive correlation indicates that residual variance grows with fitted value (the classical heteroscedastic pattern).
 
 ## Skewness {#sec-skewness}
 
 $$\text{skew}(\hat{\varepsilon}_{\text{norm}}) = \frac{\frac{1}{n}\sum_{i=1}^{n}(\hat{\varepsilon}_i - \bar{\varepsilon})^3}{\left[\frac{1}{n}\sum_{i=1}^{n}(\hat{\varepsilon}_i - \bar{\varepsilon})^2\right]^{3/2}} \tag{S3.2}$$
 
-**Criterion C2:** $|\text{skew}| < 1.50$.
-Large skewness of normalised residuals indicates the chosen transformation has
-not adequately symmetrised the response distribution, inflating Type I error on
-the fixed-effect path coefficients regardless of whether variance is constant.
+**Criterion C2:** $|\text{skew}| < 1.50$. Large skewness of normalised residuals indicates the chosen transformation has not adequately symmetrised the response distribution, inflating Type I error on the fixed-effect path coefficients regardless of whether variance is constant.
 
 ## Collinearity {#sec-vif}
 
-The variance inflation factor for continuous predictor $j$ is computed via an
-OLS proxy (the binary land-use term is excluded because VIF is undefined for a
-binary variable with no associated multicollinearity risk in an orthogonal
-design):
+The variance inflation factor for continuous predictor $j$ is computed via an OLS proxy (the binary land-use term is excluded because VIF is undefined for a binary variable with no associated multicollinearity risk in an orthogonal design):
 
 $$\text{VIF}_j = \frac{1}{1 - R^2_j} \tag{S3.3}$$
 
-where $R^2_j$ is the coefficient of determination from regressing predictor $j$
-on all remaining continuous predictors.
+where $R^2_j$ is the coefficient of determination from regressing predictor $j$ on all remaining continuous predictors.
 
-**Criterion C3:** $\max_j \text{VIF}_j < 5.0$.
-VIF exceeding 5 inflates the standard errors of individual path coefficients,
-making it impossible to distinguish genuine mediation from collinearity artefact.
+**Criterion C3:** $\max_j \text{VIF}_j < 5.0$. VIF exceeding 5 inflates the standard errors of individual path coefficients, making it impossible to distinguish genuine mediation from collinearity artefact.
 
 ## Joint validity {#sec-joint}
 
-A window $w$ is diagnostically valid for equation $e$ under configuration $\theta$
-when all three criteria hold simultaneously:
+A window $w$ is diagnostically valid for equation $e$ under configuration $\theta$ when all three criteria hold simultaneously:
 
 $$\mathcal{V}(w, e, \theta) = \mathbf{1}_{[C1 \cap C2 \cap C3]} \tag{S3.4}$$
 
@@ -188,26 +134,19 @@ The proportion of valid windows for a given (equation, configuration) pair is:
 
 $$\hat{p}(e, \theta) = \frac{1}{|\mathcal{W}|} \sum_{w \in \mathcal{W}} \mathcal{V}(w, e, \theta) \tag{S3.5}$$
 
----
+------------------------------------------------------------------------
 
 # Configuration selection {#sec-selection}
 
-The optimal configuration is chosen by a two-step procedure that avoids
-privileging one equation at the expense of another.
+The optimal configuration is chosen by a two-step procedure that avoids privileging one equation at the expense of another.
 
 ## Step 1 — Best transformation per equation {#sec-step1}
 
-For each response variable $e$ and each $(W, C_{\min})$ pair, the transformation
-$f^*$ maximising the product of diagnostic validity and explanatory power is
-selected:
+For each response variable $e$ and each $(W, C_{\min})$ pair, the transformation $f^*$ maximising the product of diagnostic validity and explanatory power is selected:
 
 $$f^*(e, W, C_{\min}) = \underset{f}{\arg\max}\ \hat{p}(e, \theta) \times \overline{R^2_m}(e, \theta) \tag{S3.6}$$
 
-where $\overline{R^2_m}$ is the mean marginal $R^2$ (variance explained by fixed
-effects only) across the sampled windows. This product rewards configurations
-that are both residually adequate **and** ecologically informative; a
-transformation that passes all diagnostics but explains nothing would score
-near zero.
+where $\overline{R^2_m}$ is the mean marginal $R^2$ (variance explained by fixed effects only) across the sampled windows. This product rewards configurations that are both residually adequate **and** ecologically informative; a transformation that passes all diagnostics but explains nothing would score near zero.
 
 ## Step 2 — Joint $(W, C_{\min})$ selection across biological responses {#sec-step2}
 
@@ -215,25 +154,15 @@ Among the 12 $(W, C_{\min})$ combinations, the pair maximising the joint score
 
 $$\text{score}(W, C_{\min}) = \min_{e \in \{\text{root},\, \text{fauna}\}}\hat{p}(e,\theta^*) \times \overline{R^2_m}(W, C_{\min}) \tag{S3.7}$$
 
-is retained, where $\theta^* = (W, C_{\min}, f^*)$ uses the equation-specific
-optimal transformation from Step 1.
+is retained, where $\theta^* = (W, C_{\min}, f^*)$ uses the equation-specific optimal transformation from Step 1.
 
-Using the **minimum** across biological responses as the validity term (rather
-than the mean) is deliberate: a configuration that works well for fauna but
-produces heteroscedastic root residuals would receive a low score, preventing
-one response from masking the other's poor fit. Microclimate equations are
-excluded from Step 2 because their simpler structure (single predictor, depth-only
-grouping) makes them diagnostically robust across nearly all configurations.
+Using the **minimum** across biological responses as the validity term (rather than the mean) is deliberate: a configuration that works well for fauna but produces heteroscedastic root residuals would receive a low score, preventing one response from masking the other's poor fit. Microclimate equations are excluded from Step 2 because their simpler structure (single predictor, depth-only grouping) makes them diagnostically robust across nearly all configurations.
 
 ## Window retention for the full SEM {#sec-retention}
 
-Using the calibrated configuration, every window in the full time series is
-evaluated and those in which fewer than **50 % of equations** pass all diagnostic
-thresholds are excluded from Script S3. This retains periods of genuine
-ecological signal while discarding brief intervals (e.g. extreme weather events,
-sensor artefacts) where the model structure is locally misspecified.
+Using the calibrated configuration, every window in the full time series is evaluated and those in which fewer than **50 % of equations** pass all diagnostic thresholds are excluded from Script S3. This retains periods of genuine ecological signal while discarding brief intervals (e.g. extreme weather events, sensor artefacts) where the model structure is locally misspecified.
 
----
+------------------------------------------------------------------------
 
 # Implementation
 
@@ -528,7 +457,7 @@ quiet_test <- purrr::safely(function(w_days, m_rate_val, transfo_type,
     transfo_type = transfo_type,
     window_days  = w_days,
     min_rate     = m_rate_val,
-    n_windows    = 50    # random subsample — sufficient to characterise behaviour
+    n_windows    = 100    # random subsample — sufficient to characterise behaviour
   )
   if (is.null(res) || nrow(res) == 0) return(NULL)
 
@@ -565,14 +494,13 @@ if (n_null   > 0) message(n_null,   " configuration(s) returned no usable window
 benchmark_results <- map_dfr(safe_results, "result")
 ```
 
----
+------------------------------------------------------------------------
 
 # Results
 
 ## Global optimisation {#sec-optim}
 
-The two-step selection procedure (Eqs S3.6–S3.7) identifies the optimal
-(window, completeness, transformation) combination.
+The two-step selection procedure (Eqs S3.6–S3.7) identifies the optimal (window, completeness, transformation) combination.
 
 ```{r global-optimization}
 EXPECTED_RESPONSES <- c("fauna", "root", "microclimate_1", "microclimate_2")
@@ -630,6 +558,11 @@ final_selection <- slice(global_optimization, 1)
 ## Per-equation summary under selected configuration {#sec-per-eq}
 
 ```{r per-equation-summary}
+#| tbl-cap: >
+#|   Diagnostic summary per equation under the selected
+#|   configuration. Validity = proportion of windows passing all three criteria.
+#|   ΔR² = R²c − R²m (variance attributable to random effects).
+
 sel_window   <- final_selection$window
 sel_min_rate <- final_selection$min_rate
 
@@ -673,9 +606,7 @@ per_eq_stats %>%
          "Skewness"    = skewness,
          "Heterosced." = hetero_strength,
          "VIF max"     = vif_max) %>%
-  kable(caption = "Table S2.2 — Diagnostic summary per equation under the selected
-        configuration. Validity = proportion of windows passing all three criteria.
-        ΔR² = R²c − R²m (variance attributable to random effects).") %>%
+  kable() %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
                 full_width = TRUE, position = "center", font_size = 13) %>%
   row_spec(0, bold = TRUE, background = "#f2f2f2") %>%
@@ -690,7 +621,7 @@ per_eq_stats %>%
 
 ```{r per-equation-barplot}
 #| fig-cap: >
-#|   **Figure S2.1 — Proportion of windows passing all diagnostic criteria per
+#|   **Proportion of windows passing all diagnostic criteria per
 #|   equation.** Each bar is coloured by the dominant failure mode. The dashed
 #|   line at 70 % marks a reference target for adequate coverage. C1 = 
 #|   heteroscedasticity; C2 = skewness; C3 = collinearity (Eqs S3.1–S3.3).
@@ -737,9 +668,7 @@ ggplot(bar_dat, aes(x = prop_valid_models, y = response_label, fill = failure_mo
 
 ## Temporal window retention {#sec-temporal}
 
-Every window in the full time series is evaluated under the selected
-configuration. Windows where fewer than 50 % of the four equations satisfy all
-criteria concurrently are excluded from the rolling-window SEM in Script S3.
+Every window in the full time series is evaluated under the selected configuration. Windows where fewer than 50 % of the four equations satisfy all criteria concurrently are excluded from the rolling-window SEM in Script S3.
 
 ```{r window-selection}
 MIN_VALID_PROP <- 0.5
@@ -776,7 +705,7 @@ message(sprintf("%d / %d windows retained (≥ %.0f%% of equations valid).",
 
 ```{r fig-window-validity}
 #| fig-cap: >
-#|   **Figure S2.2 — Window-level diagnostic validity over time.** Each point
+#|   **Window-level diagnostic validity over time.** Each point
 #|   is one rolling window; the y-axis is the proportion of the four structural
 #|   equations (Eqs S1.1–S1.4) that simultaneously satisfy all three criteria
 #|   (Eq S3.4). Green = retained; red = excluded. Clusters of excluded windows
@@ -808,11 +737,7 @@ ggplot(window_validity, aes(x = date_start, y = prop_eq_valid, colour = window_v
 
 ## Visual model checks — selected configuration {#sec-visual}
 
-The following six-panel figures pool per-observation diagnostics from a random
-subsample of 100 retained windows for each structural equation. Panels follow
-the standard model-checking workflow: posterior predictive check, linearity,
-homogeneity of variance, influential observations, collinearity, and normality
-of residuals.
+The following six-panel figures pool per-observation diagnostics from a random subsample of 100 retained windows for each structural equation. Panels follow the standard model-checking workflow: posterior predictive check, linearity, homogeneity of variance, influential observations, collinearity, and normality of residuals.
 
 ```{r fn-extract-diag}
 extract_lme_diag <- function(m, w_name, resp_name) {
@@ -1013,7 +938,7 @@ make_check_panels <- function(eq_name, eq_label, resid_data, vif_data,
 
   (p1 | p2) / (p3 | p4) / (p5 | p6) +
     plot_annotation(
-      title    = paste0("Figure S2.", which(names(response_labels) == eq_name) + 2,
+      title    = paste0("Figure", which(names(response_labels) == eq_name) + 2,
                         " — Model diagnostics: ", eq_label),
       subtitle = sprintf("Pooled across %d retained windows  |  n = %s observations",
                          n_wins, scales::comma(nrow(eq_res))),
@@ -1026,7 +951,7 @@ make_check_panels <- function(eq_name, eq_label, resid_data, vif_data,
 
 ```{r fig-check-models, fig.width=14, fig.height=10, out.width="100%"}
 #| fig-cap: >
-#|   **Figures S2.3–S2.6 — Six-panel model diagnostics for each structural
+#|   **Six-panel model diagnostics for each structural
 #|   equation.** Panels: (1) Posterior Predictive Check — predicted densities
 #|   should envelop the observed distribution; (2) Linearity — LOESS on
 #|   residuals vs. fitted should be flat; (3) Homogeneity of variance (C1) —
@@ -1055,12 +980,11 @@ iwalk(check_figs, ~ ggsave(
 ))
 ```
 
----
+------------------------------------------------------------------------
 
 # Export {#sec-export}
 
-The following files are written to `../output/` for use by Script S3
-(`3_SEM_modelisation.qmd`):
+The following files are written to `../output/` for use by Script S3 (`3_SEM_modelisation.qmd`):
 
 ```{r export}
 #| echo: true
@@ -1100,7 +1024,7 @@ message(sprintf(
 ```
 
 | Output file | Contents |
-|---|---|
+|----|----|
 | `benchmark_results_database.csv` | Full sensitivity grid results (Table S2.1 expanded) |
 | `selected_windows.txt` | Dates of retained rolling windows (one per line) |
 | `model_parameters.txt` | JSON: selected window, completeness, and transformations |
