@@ -12,15 +12,21 @@ Soil invertebrate communities were monitored at 6-hour resolution over nearly tw
 
 ------------------------------------------------------------------------
 
+## Study site
+
+The study was conducted at the experimental agroforestry site DIAMs (Dispositif Instrumenté en Agroforesterie Méditerranéenne sous contrainte hydrique) established in 2017 at the experimental station of INRAe (UE Diascope, Mauguio, France, 43.612°N; 3.976°E), under a semi-arid Mediterranean climate characterized by dry, hot summers and mild, wet winters (mean annual temperature 15.7 °C, mean annual precipitation 511 mm (Martin-Blangy et al., 2025). The soils are classified as Skeletic Rhodic Luvisols (IUSS Working group WRB 2014), due to the high proportions of stones (60% and more), a red color and a clayed layer (\>47%) deeper than 100 cm (Siegwart et al. 2023).
+
+The system combines annual crop rotations with rows of black locust (Robinia pseudoacacia L.) spaced 17 m apart, each row bordered by a 2 m-wide permanent grass strip maintained under the canopy. During the 2023–2024 cropping season, durum wheat (Triticum durum Desf.) was sown on 14 December 2023 and harvested on 8 July 2024, followed by sorghum (Sorghum bicolor (L.) Moench) sown on 15 July, mown on 22 November, and shallow-tilled on 25 November 2024. To ensure establishment, the sorghum was irrigated three times (July 17, July 22, and Aug 12, 2024). Chickpea (Cicer arietinum L.) was subsequently sown on 14 March 2025 and harvest on 10 July 2025. The two land-use types compared throughout this study are hereafter referred to as treed (areas located directly beneath tree rows) and cultivated (areas located in the open cropped area) located at 4 m far from the tree rows, at least.
+
+------------------------------------------------------------------------
+
 ## Research questions and hypotheses under development
 
-The overarching question is whether perennial vegetation buffers soil communities against environmental fluctuations — and through which causal pathways this buffering operates.
+H1 — Land-use type directly structures faunal activity in a non-stationary manner, with frequent reversals in sign and magnitude of land-use effects across seasons and management phases. 
 
-**H1 — Land-use effects on soil conditions.** Managed (cultivated) systems are expected to increase the variability and extremes of microclimate, root resource supply, and faunal abundance relative to unmanaged (treed) systems. Exposed soils amplify thermal and moisture fluctuations, while periodic management interventions (tillage, harvest, irrigation) generate episodic resource pulses with no equivalent under continuous perennial cover.
+H2 — Land-use effects are predominantly indirect: while agricultural management generally amplifies thermal variability and dampens moisture fluctuations (via irrigation), shifting the dominant driver from resource supply toward abiotic forcing, these relationships exhibit significant temporal complexity. 
 
-**H2 — Shift in environmental forcing pathways.** In cultivated soils, faunal activity is expected to be strongly and directly coupled to abiotic forcing — microclimate extremes and resource inputs drive abundance in a bottom-up, environmentally controlled manner. Under tree cover, where abiotic variability is dampened, biotic pathways (root-mediated resource supply, trophic interactions) are expected to carry proportionally more weight. This represents a qualitative shift in the causal architecture governing soil communities, not merely a difference in effect sizes.
-
-**H3 — Temporal synchrony of causal rules.** Because both systems share the same regional climate signal, abiotic forcing paths (microclimate → fauna) are expected to remain temporally synchronised between A and C across most of the year. Synchrony is expected to break down in summer, when irrigation and other management-specific interventions in C decouple local soil conditions from the ambient climate, creating system-specific dynamics that are absent in A.
+H3 — Land-use intensification compresses taxonomic response. We expect that periods of high land-use constraints lead to a convergence of taxon-specific responses, thereby reducing the functional dispersion of responses across the community  
 
 ------------------------------------------------------------------------
 
@@ -28,7 +34,7 @@ The overarching question is whether perennial vegetation buffers soil communitie
 
 ![SEM diagram](images/image.png)
 
-The model is fitted independently on overlapping rolling time windows. All variables are z-score standardised prior to modelling, making path coefficients directly comparable across taxa and predictors. 
+The model is fitted independently on overlapping rolling time windows. All variables are z-score standardised prior to modelling, making path coefficients directly comparable across taxa and predictors.
 
 **Tier 1 — land use shapes microclimate**
 
