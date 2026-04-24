@@ -48,9 +48,13 @@ touches a model.
 # SETUP
 #
 # Loads packages, reads shared pipeline metadata (microclimate variable names),
-# and defines all visual constants and helper functions used across sections
-# H1, H2, and H3. All aesthetic choices (colours, linetypes, labels) are
-# centralised here so that changing one value propagates consistently.
+# and defines all visual constants and helper functions used throughout.
+#
+# Design philosophy
+# ─────────────────
+# All aesthetic choices — colours, linetypes, labels, font sizes — are defined
+# once in this block and referenced by name everywhere else. Changing a value
+# here propagates consistently to every figure without manual search-and-replace.
 # ══════════════════════════════════════════════════════════════════════════════
 
 invisible(Sys.setlocale("LC_TIME", "C"))    # Force English month names in plots
@@ -62,24 +66,33 @@ invisible(lapply(libs, require, character.only = TRUE))
 
 
 # ── Microclimate variable names ───────────────────────────────────────────────
-# Written by S1 (1_database_edition.qmd) via PCA-based index selection.
+# Written by 1_database_edition.qmd after PCA-based index selection.
+# mc1_pred and mc2_pred are the two most informative, mutually orthogonal
+# microclimate indices (e.g. "temp_soil_amplitude", "hum_soil_amplitude").
+# They are used as axis labels and in pathway name strings throughout.
 microclimate_index <- readLines("../output/microclimate_index.txt")
-mc1_pred <- microclimate_index[1]
-mc2_pred <- microclimate_index[2]
+mc1_pred <- microclimate_index[1]   # First retained microclimate index (PC1)
+mc2_pred <- microclimate_index[2]   # Second retained microclimate index (PC2)
 
 
 # ── Land-use colour palette ───────────────────────────────────────────────────
-# Dark green = treed plots (A); burnt orange = cultivated plots (C).
+# Applied to every figure that distinguishes land-use type.
+# Dark olive-green = treed plots (A); warm orange = cultivated plots (C).
 pos_colours <- c("Treed (A)" = "#717F55", "Cultivated (C)" = "#FF994E")
 
 
 # ── Causal pathway metadata ───────────────────────────────────────────────────
-# Single source of truth for pathway labels, colours, and linetypes.
+# Single source of truth for all pathway display properties.
 #
-# ltype encodes causal depth:
-#   solid  = direct or composite (total indirect / total effect)
-#   dashed = two-step indirect   (lu → X → fauna)
-#   dotted = three-step indirect (lu → X → root → fauna)
+# Columns
+# -------
+#   path_id  : machine key used as join key in all downstream code
+#   label    : human-readable string used in legends and axis labels
+#   colour   : warm tones for root-mediated paths; cool/neutral for microclimate
+#   ltype    : encodes causal depth
+#              "solid"  → direct effect or composite (total indirect / total effect)
+#              "dashed" → two-step indirect  (lu → X → fauna)
+#              "dotted" → three-step indirect (lu → X → root → fauna)
 path_meta <- tribble(
   ~path_id,         ~label,                                                 ~colour,   ~ltype,
   "direct",         "Direct (lu\u2192fauna)",                               "#F9BB05", "solid",
@@ -92,18 +105,23 @@ path_meta <- tribble(
   "total_effect",   "Total effect",                                          "#444444", "solid"
 )
 
+# Named vectors for ggplot scale_*_manual() calls (names = path_id values)
 path_colours <- setNames(path_meta$colour, path_meta$path_id)
 path_ltypes  <- setNames(path_meta$ltype,  path_meta$path_id)
 path_labels  <- setNames(path_meta$label,  path_meta$path_id)
 
 
 # ── Season background bands ───────────────────────────────────────────────────
+# Alternating light-grey rectangles mark the four meteorological seasons.
+# Boundaries: Spring = Mar–May | Summer = Jun–Aug | Autumn = Sep–Nov | Winter = Dec–Feb.
 season_order <- c("Spring", "Summer", "Autumn", "Winter")
 season_fills <- c(Spring = "#f9f9f9", Summer = "#eeeeee",
                   Autumn = "#f9f9f9", Winter = "#eeeeee")
 
 
-# ── Agricultural intervention and irrigation landmarks ────────────────────────
+# ── Agricultural and irrigation event landmarks ───────────────────────────────
+# Used as vertical reference lines in all time-series figures.
+# Red dotted = crop management events; green dotted = irrigation events.
 interventions <- data.frame(
   date = as.Date(c(
     "2024-07-08", "2024-07-15",
@@ -125,11 +143,14 @@ irrigation <- data.frame(
 # ── Helper: season annotation layers ─────────────────────────────────────────
 #' Build season background rectangles and italic labels for a time-series plot.
 #'
-#' @param date_range  Length-2 Date vector matching the x-axis.
-#' @param y_label_pos Vertical position of season labels (default = Inf).
-#' @param label_size  ggplot font size for season labels. Default 2.2.
+#' Returns a list of ggplot layers (annotate rectangles + geom_text labels)
+#' that can be added with `+ make_season_layers(...)` to any date-scaled plot.
+#'
+#' @param date_range  Length-2 Date vector matching the plot x-axis range.
+#' @param y_label_pos Vertical position of season name labels. `Inf` = top.
+#' @param label_size  ggplot font size for season labels (default 3.5).
 #' @return A list of ggplot annotation / geom layers.
-make_season_layers <- function(date_range, y_label_pos = Inf, label_size = 2.2) {
+make_season_layers <- function(date_range, y_label_pos = Inf, label_size = 3.5) {
   bands <- tibble(
     season  = names(season_fills),
     m_start = c(3L, 6L, 9L, 12L),
@@ -146,7 +167,8 @@ make_season_layers <- function(date_range, y_label_pos = Inf, label_size = 2.2) 
       xmid = xmin + (xmax - xmin) / 2
     ) %>%
     filter(xmin < date_range[2], xmax > date_range[1]) %>%
-    mutate(xmin = pmax(xmin, date_range[1]), xmax = pmin(xmax, date_range[2]))
+    mutate(xmin = pmax(xmin, date_range[1]),
+           xmax = pmin(xmax, date_range[2]))
 
   rect_layers <- pmap(
     bands %>% select(xmin, xmax, fill),
@@ -161,7 +183,7 @@ make_season_layers <- function(date_range, y_label_pos = Inf, label_size = 2.2) 
     aes(x = xmid, y = y_label_pos, label = season),
     inherit.aes = FALSE,
     vjust = 1.6, size = label_size,
-    colour = "grey60", fontface = "italic", family = "sans"
+    colour = "grey55", fontface = "italic", family = "sans"
   )
 
   c(rect_layers, list(label_layer))
@@ -171,45 +193,56 @@ make_season_layers <- function(date_range, y_label_pos = Inf, label_size = 2.2) 
 # ── Base ggplot theme ─────────────────────────────────────────────────────────
 #' Consistent theme for all SEM figures.
 #'
-#' @param base_size  Base font size in pt. Default 8.
+#' Built on top of theme_classic() with a light panel border, subtle grid
+#' lines, and no axis lines (replaced by panel.border). All font sizes scale
+#' from `base_size` so that the whole figure can be rescaled by changing one
+#' argument.
+#'
+#' @param base_size  Base font size in pt. Default 11 (increased for legibility
+#'                   following reviewer request).
 #' @param legend_pos Passed to `legend.position`. Default "none".
-theme_sem <- function(base_size = 8, legend_pos = "none") {
+theme_sem <- function(base_size = 11, legend_pos = "none") {
   theme_classic(base_size = base_size) %+replace%
     theme(
-      panel.border      = element_rect(colour = "grey20", fill = NA, linewidth = 0.3),
-      panel.grid.major  = element_line(colour = "grey94", linewidth = 0.25),
+      panel.border      = element_rect(colour = "grey20", fill = NA,
+                                       linewidth = 0.4),
+      panel.grid.major  = element_line(colour = "grey92", linewidth = 0.3),
       panel.grid.minor  = element_blank(),
       panel.background  = element_rect(fill = "white", colour = NA),
       axis.line         = element_blank(),
-      axis.ticks        = element_line(colour = "grey40", linewidth = 0.3),
-      axis.ticks.length = unit(2, "pt"),
-      axis.title        = element_text(size = base_size - 0.5, colour = "grey20"),
-      axis.text         = element_text(size = base_size - 1.5, colour = "grey30"),
-      strip.text        = element_text(size = base_size - 1, face = "bold",
+      axis.ticks        = element_line(colour = "grey40", linewidth = 0.35),
+      axis.ticks.length = unit(3, "pt"),
+      axis.title        = element_text(size = base_size,     colour = "grey20"),
+      axis.text         = element_text(size = base_size - 1, colour = "grey30"),
+      strip.text        = element_text(size = base_size,     face = "bold",
                                        colour = "grey15"),
       strip.background  = element_rect(fill = "grey96", colour = "grey96",
                                        linewidth = 0.3),
-      plot.title        = element_text(size = base_size + 0.5, face = "bold",
+      plot.title        = element_text(size = base_size + 2, face = "bold",
                                        hjust = 0, colour = "grey10",
-                                       margin = margin(b = 3)),
+                                       margin = margin(b = 4)),
       plot.subtitle     = element_text(size = base_size - 1, colour = "grey45",
-                                       hjust = 0, margin = margin(b = 5)),
+                                       hjust = 0, margin = margin(b = 6)),
       plot.caption      = element_text(size = base_size - 2, colour = "grey55",
-                                       hjust = 0, margin = margin(t = 4)),
+                                       hjust = 0, margin = margin(t = 5)),
       legend.position   = legend_pos,
       legend.background = element_blank(),
       legend.key        = element_blank(),
-      legend.title      = element_text(size = base_size - 1, face = "bold",
+      legend.title      = element_text(size = base_size,     face = "bold",
                                        colour = "grey20"),
-      legend.text       = element_text(size = base_size - 1.5, colour = "grey30"),
-      legend.key.size   = unit(8, "pt"),
-      legend.spacing.x  = unit(3, "pt"),
-      plot.margin       = margin(6, 6, 6, 6)
+      legend.text       = element_text(size = base_size - 1, colour = "grey30"),
+      legend.key.size   = unit(12, "pt"),
+      legend.spacing.x  = unit(4, "pt"),
+      plot.margin       = margin(8, 8, 8, 8)
     )
 }
 
 
 # ── Load pre-computed result databases ────────────────────────────────────────
+# All modelling was performed upstream in 3_SEM_modelisation.qmd.
+# This script reads outputs only — no model is fitted here.
+
+# H1: null-model residuals (one row per observation × scanner)
 h1_adj <- read.csv("../output/H1_adjusted_values.csv",
                    na.strings = c("", "NA")) %>%
   mutate(
@@ -218,22 +251,29 @@ h1_adj <- read.csv("../output/H1_adjusted_values.csv",
     season         = factor(season, levels = season_order)
   )
 
+# H1 model summary: β, SE, t, p, Hedge's g, R² from the two-step linear model
 h1_summary <- read.csv("../output/H1_model_summary.csv",
                        na.strings = c("", "NA"))
 
+# Full-dataset piecewise SEM: directional path coefficients
 dag_table <- read.csv("../output/DAG_coefficients.csv",
                       na.strings = c("", "NA"))
 
+# Full-dataset piecewise SEM: global fit statistics (Fisher's C, AIC)
 dag_fit <- read.csv("../output/DAG_model_fit.csv",
                     na.strings = c("", "NA"))
 
+# Rolling-window SEM: one row per (taxon × window × path)
 sem_results <- read.csv("../output/SEM_results_database.csv",
                         na.strings = c("", "NA")) %>%
   mutate(season = factor(season, levels = season_order))
 
+# Rolling-window indirect effects: β-products for all causal routes
 indirect_effects <- read.csv("../output/indirect_effects.csv",
                              na.strings = c("", "NA"))
 
+# Faunal transformation used during modelling (e.g. "log", "sqrt_plus_one")
+# — stored by 3_SEM_modelisation.qmd and used in axis labels where relevant
 transfo_fauna <- h1_summary$transformation[1]
 ```
 
@@ -241,7 +281,8 @@ transfo_fauna <- h1_summary$transformation[1]
 
 # H1 — Direct effect of land-use type on faunal activity
 
-> **Land-use type directly structures faunal activity, with treed habitats sustaining lower but more temporally stable activity than cultivated zones.**
+> **Land-use type directly structures faunal activity, with treed habitats
+> sustaining lower but more temporally stable activity than cultivated zones.**
 
 ## Two-step modelling approach
 
@@ -266,48 +307,61 @@ effects.
 ```{r fig-h1-combined}
 #| label: fig-h1-combined
 #| fig-cap: >
-#|   **Figure 1. Direct effect of land-use type on soil invertebrate activity.**
-#|   (A) Distribution of null-model residuals pooled across the monitoring
-#|   period. A systematic offset from zero indicates a land-use effect after
-#|   accounting for scanner orientation and depth. (B) Temporal dynamics of
-#|   null-model residuals with LOESS smoothers (span = 0.18). Green = treed
-#|   (A); orange = cultivated (C). Shaded bands = meteorological seasons.
-#|   Dotted red vertical lines = agricultural interventions (wheat harvest,
-#|   sorghum sowing, mowing, tillage, chickpea sowing). Dotted green vertical
-#|   lines = irrigation events.
-#| fig-width: 12
-#| fig-height: 5
+#|   **Direct effect of land-use type on soil invertebrate activity.**
+#|   (A) Distribution of random-effect-adjusted fauna values per land-use type.
+#|   Values represent observed fauna with scanner orientation and depth effects
+#|   removed, preserving the intercept so that the Y axis is in fauna units
+#|   (log-transformed scale). (B) Temporal dynamics of random-effect-adjusted
+#|   fauna values with LOESS smoothers (span = 0.18). Green = treed (A);
+#|   orange = cultivated (C). Shaded bands = meteorological seasons. Dotted red
+#|   vertical lines = agricultural interventions (wheat harvest, sorghum sowing,
+#|   mowing, tillage, chickpea sowing). Dotted green vertical lines = irrigation
+#|   events.
+#| fig-width: 14
+#| fig-height: 6
 
+# ── Shared y-axis limits ──────────────────────────────────────────────────────
+# Derived from the raw data so both panels use exactly the same scale.
+# Rounded to the nearest 0.1 for clean tick positions.
 shared_ylim <- c(
   floor(  min(h1_adj$adj_value, na.rm = TRUE) * 10) / 10,
   ceiling(max(h1_adj$adj_value, na.rm = TRUE) * 10) / 10
 )
 
+
+# ── Left panel: boxplot ───────────────────────────────────────────────────────
+# Jitter (very transparent) shows the full data density; boxplot summarises
+# the distribution. The right border is suppressed so the two panels join flush.
 p_box <- ggplot(
   h1_adj,
   aes(x = position_label, y = adj_value,
       fill = position_label, colour = position_label)
 ) +
-  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3,
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.35,
              linetype = "dashed") +
-  geom_jitter(alpha = 0.05, size = 0.3, shape = 20) +
+  geom_jitter(alpha = 0.05, size = 0.4, shape = 20) +
   geom_boxplot(width = 0.5, outliers = FALSE,
-               linewidth = 0.8, fatten = 1.2, alpha = 0.5) +
+               linewidth = 0.9, fatten = 1.2, alpha = 0.5) +
   scale_colour_manual(values = pos_colours) +
   scale_fill_manual(values   = pos_colours) +
   scale_x_discrete(labels = c("Treed", "Cultivated")) +
   coord_cartesian(ylim = shared_ylim) +
-  labs(x = NULL, y = "Null-model residuals") +
+  labs(x = NULL, y = "Soil invertebrate activity (adjusted)") +
   guides(fill = "none", colour = "none") +
   theme_sem() +
   theme(
-    axis.text.x      = element_text(size = 6.5, face = "bold"),
+    # Bold x tick labels to distinguish the two land-use categories clearly
+    axis.text.x      = element_text(size = 11, face = "bold"),
     panel.border     = element_blank(),
-    axis.line.y.left = element_line(colour = "grey20", linewidth = 0.3),
-    axis.line.x      = element_line(colour = "grey20", linewidth = 0.3),
+    axis.line.y.left = element_line(colour = "grey20", linewidth = 0.35),
+    axis.line.x      = element_line(colour = "grey20", linewidth = 0.35),
     plot.margin      = margin(t = 5, r = 0, b = 5, l = 5, unit = "pt")
   )
 
+
+# ── Right panel: LOESS time series ───────────────────────────────────────────
+# Left border and y-axis are suppressed — they are carried by the left panel.
+# Season bands are added first so all geoms are drawn on top.
 p_temp <- ggplot(
   h1_adj %>% mutate(date = as.Date(date)),
   aes(x = date, colour = position_label, fill = position_label)
@@ -315,14 +369,16 @@ p_temp <- ggplot(
   make_season_layers(range(as.Date(h1_adj$date), na.rm = TRUE),
                      y_label_pos = shared_ylim[2]) +
   geom_vline(data = interventions, aes(xintercept = date),
-             colour = "darkred", linetype = "dotted", alpha = 0.6) +
-  geom_vline(data = irrigation, aes(xintercept = date),
-             colour = "darkgreen", linetype = "dotted", alpha = 0.6) +
-  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3,
+             colour = "darkred",   linetype = "dotted", alpha = 0.7) +
+  geom_vline(data = irrigation,    aes(xintercept = date),
+             colour = "darkgreen", linetype = "dotted", alpha = 0.7) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.35,
              linetype = "dashed") +
-  geom_point(aes(y = adj_value), size = 0.5, alpha = 0.15, shape = 16) +
+  # Raw observations: very transparent to show local density without clutter
+  geom_point(aes(y = adj_value), size = 0.6, alpha = 0.15, shape = 16) +
+  # LOESS smoother: span = 0.18 gives seasonal resolution without over-smoothing
   geom_smooth(aes(y = adj_value), method = "loess", formula = y ~ x,
-              span = 0.18, linewidth = 0.7, se = FALSE) +
+              span = 0.18, linewidth = 0.85, se = FALSE) +
   scale_colour_manual(values = pos_colours, name = "Land-use type",
                       labels = c("Treed (A)", "Cultivated (C)")) +
   scale_fill_manual(values   = pos_colours, name = "Land-use type",
@@ -334,17 +390,22 @@ p_temp <- ggplot(
   guides(fill = "none", colour = "none") +
   theme_sem(legend_pos = "bottom") +
   theme(
-    axis.text.x       = element_text(angle = 30, hjust = 1, size = 6.5),
+    axis.text.x       = element_text(angle = 35, hjust = 1, size = 10),
     legend.direction  = "horizontal",
+    legend.text       = element_text(size = 11),
     axis.title.y      = element_blank(),
     axis.text.y       = element_blank(),
     axis.ticks.y      = element_blank(),
     panel.border      = element_blank(),
-    axis.line.y.right = element_line(colour = "grey20", linewidth = 0.3),
-    axis.line.x       = element_line(colour = "grey20", linewidth = 0.3),
+    axis.line.y.right = element_line(colour = "grey20", linewidth = 0.35),
+    axis.line.x       = element_line(colour = "grey20", linewidth = 0.35),
     plot.margin       = margin(t = 5, r = 5, b = 5, l = 0, unit = "pt")
   )
 
+
+# ── Combine with patchwork ────────────────────────────────────────────────────
+# widths = c(1, 3): temporal panel is 3× wider than the boxplot.
+# guides = "collect" merges the two colour legends into one block below.
 h1_combined <- (p_box + p_temp) +
   plot_layout(widths = c(1, 3), guides = "collect") &
   theme(legend.position = "bottom", legend.direction = "horizontal")
@@ -353,21 +414,24 @@ h1_combined <- h1_combined + plot_annotation(tag_levels = "A")
 h1_combined
 
 ggsave("../output/Fig1_H1_combined.tiff", h1_combined,
-       width = 20, height = 10, units = "cm", dpi = 300, compression = "lzw")
+       width = 24, height = 12, units = "cm", dpi = 300, compression = "lzw")
 ```
 
 ---
 
 # H2 — Indirect effects through contrasting causal pathways
 
-> **Land-use effects are mediated through contrasting causal pathways — agricultural management drives faunal activity primarily through altered microclimate, whereas treed habitats sustain faunal activity more consistently through root resource supply.**
+> **Land-use effects are mediated through contrasting causal pathways —
+> agricultural management drives faunal activity primarily through altered
+> microclimate, whereas treed habitats sustain faunal activity more
+> consistently through root resource supply.**
 
 ## Pathway algebra
 
-The SEM estimates one standardised β per path per rolling window. An **indirect
-effect** is the product of all β values along a causal route. Because all
-continuous variables are z-scored within each window, these products are
-dimensionless and directly comparable across windows and pathways.
+The SEM estimates one standardised β per path per rolling window. An
+**indirect effect** is the product of all β values along a causal route.
+Because all continuous variables are z-scored within each window, these
+products are dimensionless and directly comparable across windows and pathways.
 
 | Path | Expression |
 |---|---|
@@ -387,7 +451,7 @@ through that pathway is stronger in the treed system.
 
 ```{r tbl-h2-dag}
 #| tbl-cap: >
-#|   **Table 1.** Path coefficients from the full-dataset piecewise SEM
+#|   Path coefficients from the full-dataset piecewise SEM
 #|   (all_taxa, complete time series, all depths). All continuous variables
 #|   were z-scored after the calibration-selected transformation. β =
 #|   unstandardised coefficient; Std β = standardised coefficient directly
@@ -397,6 +461,8 @@ through that pathway is stronger in the treed system.
 #|   conditional independence claims implied by the DAG are consistent
 #|   with the data.
 
+# Build the model-fit footnote string.
+# A saturated DAG has no d-separation claims, so Fisher's C is NA — expected.
 fit_line <- with(dag_fit, paste0(
   "Model fit \u2014 Fisher\u2019s C = ",
   if (is.na(fishers_C)) "NA" else round(fishers_C, 2),
@@ -410,8 +476,10 @@ fit_line <- with(dag_fit, paste0(
 ))
 
 dag_table %>%
+  # Exclude variance–covariance rows (~~): not directional paths
   filter(!str_detect(response, "~~")) %>%
   mutate(
+    # piecewiseSEM may store numeric columns as character — coerce before formatting
     across(c(estimate, std_estimate, se, t_value, p_value,
              r2_marginal, r2_conditional),
            ~ suppressWarnings(as.numeric(.))),
@@ -436,8 +504,9 @@ dag_table %>%
   kbl(format = "html", escape = FALSE,
       align  = c("l", "l", "r", "r", "r", "r", "r", "l", "r", "r")) %>%
   kable_styling(bootstrap_options = c("condensed", "hover"),
-                full_width = FALSE, font_size = 12) %>%
+                full_width = FALSE, font_size = 13) %>%
   row_spec(0, bold = TRUE, background = "#e8e8e8") %>%
+  # Merge repeated equation and R² cells for readability
   collapse_rows(columns = c(1, 9, 10), valign = "middle") %>%
   footnote(
     general = paste0(
@@ -451,6 +520,21 @@ dag_table %>%
 ## Rolling-window vs. full-dataset pathway estimates
 
 ```{r h2-prep}
+# ══════════════════════════════════════════════════════════════════════════════
+# PREPARE H2 TIME SERIES
+#
+# Two data sources are assembled:
+#   direct_ts   — the lu→fauna β extracted from sem_results (one row per window)
+#   indirect_ts — β-products from indirect_effects, pivoted to long format
+#
+# Both are restricted to all_taxa (community level), then joined with path_meta
+# to attach display labels, colours, and linetypes.
+#
+# Winsorisation at 2.5–97.5% per pathway before LOESS smoothing reduces the
+# leverage of outlier windows (e.g. sparse fauna in winter) without discarding
+# those windows from the raw data layer.
+# ══════════════════════════════════════════════════════════════════════════════
+
 direct_ts <- sem_results %>%
   filter(taxon == "all_taxa", predictor == "land_use", response == "fauna") %>%
   transmute(path_id = "direct", date_start, season, std_estimate)
@@ -464,6 +548,8 @@ indirect_ts <- indirect_effects %>%
     values_to = "std_estimate"
   ) %>%
   filter(!is.na(std_estimate)) %>%
+  # Derive season from date_start rather than relying on the saved column,
+  # which may be absent in older pipeline runs
   mutate(
     month  = month(date_start),
     season = factor(case_when(
@@ -482,6 +568,7 @@ h2_ts <- bind_rows(direct_ts, indirect_ts) %>%
     label   = factor(label,   levels = path_meta$label),
     season  = factor(season,  levels = season_order)
   ) %>%
+  # Winsorise per pathway to reduce leverage of extreme windows on the smoother
   group_by(path_id) %>%
   mutate(
     lo           = quantile(std_estimate, 0.025, na.rm = TRUE),
@@ -490,12 +577,22 @@ h2_ts <- bind_rows(direct_ts, indirect_ts) %>%
   ) %>%
   ungroup()
 
+
+# ── LOESS smoother helper ─────────────────────────────────────────────────────
+#' Fit a LOESS smoother to one pathway's time series.
+#'
+#' Used inside group_modify(). Falls back to the raw estimates when fewer than
+#' 5 valid observations are available or when LOESS fails.
+#'
+#' @param df    Data frame with columns `date_start` (Date) and `std_estimate`.
+#' @param span  LOESS bandwidth (default 0.30).
+#' @return `df` with an added `smoothed` column.
 smooth_path <- function(df, span = 0.30) {
   df <- df %>% filter(!is.na(std_estimate)) %>% arrange(date_start)
   if (nrow(df) < 5) return(mutate(df, smoothed = std_estimate))
   fit <- tryCatch(
     loess(std_estimate ~ as.numeric(date_start), data = df, span = span,
-          control = loess.control(surface = "direct")),
+          control = loess.control(surface = "direct")),  # avoids edge artefacts
     error = \(e) NULL
   )
   df$smoothed <- if (!is.null(fit)) predict(fit) else df$std_estimate
@@ -510,20 +607,35 @@ h2_smoothed <- h2_ts %>%
 
 date_range_h2 <- range(h2_smoothed$date_start)
 
+# Shared y limits: derived from both raw and smoothed values simultaneously
 shared_ylim_h2 <- c(
   floor(  min(c(h2_ts$std_estimate, h2_smoothed$smoothed), na.rm = TRUE) * 10) / 10,
   ceiling(max(c(h2_ts$std_estimate, h2_smoothed$smoothed), na.rm = TRUE) * 10) / 10
 )
 
+# Short pathway labels for the marginal panel x-axis (multi-line allowed)
 path_labels_short <- setNames(
   c("Direct", "mc1\u2192fauna", "mc2\u2192fauna", "root\u2192fauna",
     "mc1\u2192root\n\u2192fauna", "mc2\u2192root\n\u2192fauna",
     "Total\nindirect", "Total\neffect"),
-  path_meta$label
+  path_meta$label   # names must match the full label strings used as breaks
 )
 ```
 
 ```{r h2-global-coef}
+# ══════════════════════════════════════════════════════════════════════════════
+# EXTRACT GLOBAL-MODEL PATHWAY ESTIMATES
+#
+# global_coef: one row per directional path with standardised β (b) and SE.
+# get_beta() / get_se(): single-value extractors that return NA when a path is
+# absent, so downstream β-products propagate NA gracefully.
+#
+# global_paths: β-products and their approximate SEs for the full-dataset SEM.
+# SEs use a first-order product approximation (product of individual SEs),
+# which is conservative and appropriate for error bars only — not formal
+# inference on products.
+# ══════════════════════════════════════════════════════════════════════════════
+
 global_coef <- dag_table %>%
   filter(!str_detect(response, "~~")) %>%
   mutate(std_estimate = suppressWarnings(as.numeric(std_estimate)),
@@ -531,24 +643,28 @@ global_coef <- dag_table %>%
   select(response, predictor, b = std_estimate, se)
 
 get_beta <- function(resp, pred) {
-  val <- global_coef$b[global_coef$response == resp & global_coef$predictor == pred]
+  val <- global_coef$b[global_coef$response == resp &
+                        global_coef$predictor == pred]
   if (length(val) == 0) NA_real_ else val[1]
 }
 get_se <- function(resp, pred) {
-  val <- global_coef$se[global_coef$response == resp & global_coef$predictor == pred]
+  val <- global_coef$se[global_coef$response == resp &
+                         global_coef$predictor == pred]
   if (length(val) == 0) NA_real_ else val[1]
 }
 
-lu_mc1 <- get_beta("microclimate_1","land_use"); se_lu_mc1 <- get_se("microclimate_1","land_use")
-lu_mc2 <- get_beta("microclimate_2","land_use"); se_lu_mc2 <- get_se("microclimate_2","land_use")
-mc1_root<- get_beta("root","microclimate_1");   se_mc1_root<- get_se("root","microclimate_1")
-mc2_root<- get_beta("root","microclimate_2");   se_mc2_root<- get_se("root","microclimate_2")
-lu_root <- get_beta("root","land_use");         se_lu_root <- get_se("root","land_use")
-mc1_fau <- get_beta("fauna","microclimate_1");  se_mc1_fau <- get_se("fauna","microclimate_1")
-mc2_fau <- get_beta("fauna","microclimate_2");  se_mc2_fau <- get_se("fauna","microclimate_2")
-root_fau<- get_beta("fauna","root");            se_root_fau<- get_se("fauna","root")
-lu_fau  <- get_beta("fauna","land_use");        se_lu_fau  <- get_se("fauna","land_use")
+# Individual path coefficients
+lu_mc1  <- get_beta("microclimate_1", "land_use");  se_lu_mc1  <- get_se("microclimate_1", "land_use")
+lu_mc2  <- get_beta("microclimate_2", "land_use");  se_lu_mc2  <- get_se("microclimate_2", "land_use")
+mc1_root<- get_beta("root", "microclimate_1");      se_mc1_root<- get_se("root", "microclimate_1")
+mc2_root<- get_beta("root", "microclimate_2");      se_mc2_root<- get_se("root", "microclimate_2")
+lu_root <- get_beta("root", "land_use");            se_lu_root <- get_se("root", "land_use")
+mc1_fau <- get_beta("fauna", "microclimate_1");     se_mc1_fau <- get_se("fauna", "microclimate_1")
+mc2_fau <- get_beta("fauna", "microclimate_2");     se_mc2_fau <- get_se("fauna", "microclimate_2")
+root_fau<- get_beta("fauna", "root");               se_root_fau<- get_se("fauna", "root")
+lu_fau  <- get_beta("fauna", "land_use");           se_lu_fau  <- get_se("fauna", "land_use")
 
+# β-products for each pathway in the full-dataset model
 global_paths <- tribble(
   ~path_id,         ~b_global,                                 ~se_global,
   "direct",          lu_fau,                                    se_lu_fau,
@@ -564,6 +680,13 @@ global_paths <- tribble(
   mutate(path_id = factor(path_id, levels = path_meta$path_id),
          label   = factor(label,   levels = path_meta$label))
 
+
+# ── Rolling-window marginal summaries per pathway ────────────────────────────
+# Collapses all windows into one summary row per pathway:
+#   median_b — robust central tendency across windows
+#   sd_b     — temporal variability
+#   q025/q975 — 2.5–97.5% range (after winsorising)
+#   q25/q75  — IQR (typical window-to-window range)
 h2_marginal <- h2_ts %>%
   group_by(path_id, label, colour, ltype) %>%
   summarise(
@@ -575,14 +698,17 @@ h2_marginal <- h2_ts %>%
     q75      = quantile(std_estimate, 0.75,  na.rm = TRUE),
     .groups  = "drop"
   ) %>%
+  # Guard against duplicate columns on interactive re-runs
   select(-any_of(c("b_global", "se_global"))) %>%
   left_join(select(global_paths, path_id, b_global, se_global), by = "path_id")
 ```
 
+## Figure 2
+
 ```{r fig-h2-combined}
 #| label: fig-h2-combined
 #| fig-cap: >
-#|   **Figure 2. Causal pathway decomposition of the land-use effect on soil
+#|   **Causal pathway decomposition of the land-use effect on soil
 #|   invertebrate activity.**
 #|   (A) Marginal distribution of standardised β-products across all rolling
 #|   windows per causal pathway. Thick bar = IQR; thin bar = 95% range (after
@@ -593,45 +719,60 @@ h2_marginal <- h2_ts %>%
 #|   interventions; dotted green lines = irrigation events. Sign convention:
 #|   A = 0, C = 1 — negative values indicate a stronger effect in the treed
 #|   system. Both panels share the same y-axis.
-#| fig-width: 16
-#| fig-height: 6
+#| fig-width: 18
+#| fig-height: 7
 
+# Shared shape scale: circle = rolling median; filled circle = global estimate
 shape_values <- c(median = 21, global = 21)
 
+# Phantom data for the shape legend — coordinates are NA so nothing is drawn,
+# but ggplot emits one legend entry per shape key
 legend_dummy <- tibble(
   x     = c(NA_character_, NA_character_),
   y     = c(NA_real_,      NA_real_),
   shape = c("median",      "global")
 )
 
+
+# ── Left panel: marginal summary ─────────────────────────────────────────────
+# One column per pathway. Thin bar = 95% range; thick bar = IQR;
+# open circle = rolling median; filled circle = global SEM estimate.
+# Right border suppressed so panels join flush.
 p_marginal <- ggplot(h2_marginal, aes(colour = path_id, fill = path_id)) +
   geom_hline(yintercept = 0, linetype = "dashed",
-             colour = "grey55", linewidth = 0.35) +
+             colour = "grey55", linewidth = 0.4) +
+  # 95% range (thin, transparent)
   geom_linerange(aes(x = label, ymin = q025, ymax = q975),
-                 linewidth = 0.5, alpha = 0.30) +
+                 linewidth = 0.6, alpha = 0.30) +
+  # IQR (thick, semi-transparent)
   geom_linerange(aes(x = label, ymin = q25, ymax = q75),
-                 linewidth = 2.2, alpha = 0.60) +
+                 linewidth = 2.5, alpha = 0.60) +
+  # Rolling-window median (open circle)
   geom_point(aes(x = label, y = median_b, shape = "median"),
-             size = 2.4, fill = "white", stroke = 1.1) +
-  geom_linerange(aes(x = label, ymin = b_global - se_global,
+             size = 2.8, fill = "white", stroke = 1.2) +
+  # Global model ± 1 SE bar
+  geom_linerange(aes(x = label,
+                     ymin = b_global - se_global,
                      ymax = b_global + se_global),
-                 linewidth = 0.5, alpha = 0.35, na.rm = TRUE) +
+                 linewidth = 0.6, alpha = 0.40, na.rm = TRUE) +
+  # Global model estimate (filled circle, pathway colour)
   geom_point(aes(x = label, y = b_global, shape = "global", fill = path_id),
-             size = 2.2, na.rm = TRUE) +
+             size = 2.5, na.rm = TRUE) +
+  # Phantom points for legend keys
   geom_point(data    = legend_dummy,
              mapping = aes(x = x, y = y, shape = shape),
              colour  = "grey30", fill = "white",
-             size = 2.2, stroke = 1.0, na.rm = TRUE) +
+             size = 2.5, stroke = 1.0, na.rm = TRUE) +
   scale_shape_manual(
     name   = NULL,
     values = shape_values,
     breaks = c("median", "global"),
     labels = c(median = "Rolling median (IQR / 95%)",
                global = "Global model (\u00b1 1 SE)"),
-    guide  = guide_legend(
+    guide  = guide_legend(direction = "vertical",
       override.aes = list(fill   = c("white", "grey30"),
                           colour = "grey30",
-                          size   = c(2.4, 2.2)))
+                          size   = c(2.8, 2.5)))
   ) +
   scale_colour_manual(values = path_colours, guide = "none") +
   scale_fill_manual(values   = path_colours, guide = "none") +
@@ -641,81 +782,110 @@ p_marginal <- ggplot(h2_marginal, aes(colour = path_id, fill = path_id)) +
   labs(x = NULL, y = "Standardised \u03b2") +
   theme_sem(legend_pos = "bottom") +
   theme(
-    axis.text.x        = element_text(size = 5.5, angle = 40, hjust = 1,
-                                      lineheight = 0.85),
-    axis.text.y        = element_text(size = 6.5),
-    legend.text        = element_text(size = 6.5),
-    legend.key.size    = unit(10, "pt"),
+    axis.text.x        = element_text(size = 9, angle = 40, hjust = 1,
+                                      lineheight = 0.9),
+    axis.text.y        = element_text(size = 10),
+    axis.title.y       = element_text(size = 11),
+    legend.text        = element_text(size = 10),
+    legend.key.size    = unit(12, "pt"),
     panel.border       = element_blank(),
-    axis.line.y.left   = element_line(colour = "grey20", linewidth = 0.3),
-    axis.line.x.bottom = element_line(colour = "grey20", linewidth = 0.3),
+    axis.line.y.left   = element_line(colour = "grey20", linewidth = 0.35),
+    axis.line.x.bottom = element_line(colour = "grey20", linewidth = 0.35),
     plot.margin        = margin(t = 5, r = 0, b = 5, l = 5, unit = "pt")
   )
 
+
+# ── Right panel: LOESS temporal time series ───────────────────────────────────
+# y-axis suppressed — carried entirely by the left panel.
+# Left border and left plot margin zeroed to close the join flush.
 p_time <- ggplot(
   h2_smoothed %>% mutate(date_start = as.Date(date_start)),
   aes(x = date_start, y = smoothed, colour = path_id, linetype = path_id)
 ) +
   make_season_layers(date_range_h2, y_label_pos = shared_ylim_h2[2] * 0.9) +
   geom_vline(data = interventions, aes(xintercept = date),
-             colour = "darkred", linetype = "dotted", alpha = 0.6) +
-  geom_vline(data = irrigation, aes(xintercept = date),
-             colour = "darkgreen", linetype = "dotted", alpha = 0.6) +
+             colour = "darkred",   linetype = "dotted", alpha = 0.7) +
+  geom_vline(data = irrigation,    aes(xintercept = date),
+             colour = "darkgreen", linetype = "dotted", alpha = 0.7) +
   geom_hline(yintercept = 0, linetype = "dashed",
-             colour = "grey55", linewidth = 0.35) +
-  geom_line(linewidth = 0.65) +
-  scale_colour_manual(values = path_colours, labels = path_labels, name = "Pathway") +
-  scale_linetype_manual(values = path_ltypes, labels = path_labels, name = "Pathway") +
+             colour = "grey55", linewidth = 0.4) +
+  geom_line(linewidth = 0.75) +
+  scale_colour_manual(values = path_colours, labels = path_labels,
+                      name   = "Pathway") +
+  scale_linetype_manual(values = path_ltypes, labels = path_labels,
+                        name   = "Pathway") +
   scale_x_date(date_labels = "%b %Y", date_breaks = "3 months",
                expand = expansion(mult = 0.01)) +
   coord_cartesian(ylim = shared_ylim_h2) +
   labs(x = NULL, y = NULL) +
   theme_sem(legend_pos = "bottom") +
   theme(
-    axis.text.x        = element_text(angle = 30, hjust = 1, size = 6.5),
-    legend.text        = element_text(size = 6.0),
-    legend.title       = element_text(size = 6.5, face = "bold"),
-    legend.key.width   = unit(16, "pt"),
-    legend.key.height  = unit(10, "pt"),
+    axis.text.x        = element_text(angle = 35, hjust = 1, size = 10),
+    legend.text        = element_text(size = 9),
+    legend.title       = element_text(size = 10, face = "bold"),
+    legend.key.width   = unit(20, "pt"),
+    legend.key.height  = unit(12, "pt"),
     axis.title.y       = element_blank(),
     axis.text.y        = element_blank(),
     axis.ticks.y       = element_blank(),
     panel.border       = element_blank(),
-    axis.line.y.right  = element_line(colour = "grey20", linewidth = 0.3),
-    axis.line.x.bottom = element_line(colour = "grey20", linewidth = 0.3),
+    axis.line.y.right  = element_line(colour = "grey20", linewidth = 0.35),
+    axis.line.x.bottom = element_line(colour = "grey20", linewidth = 0.35),
     plot.margin        = margin(t = 5, r = 5, b = 5, l = 0, unit = "pt")
   )
 
+
+# ── Combine with patchwork ────────────────────────────────────────────────────
+# guides = "keep" preserves each panel's own legend (shape below marginal;
+# pathway legend below temporal). "collect" would merge them and break the
+# spatial association with each panel.
 h2_combined <- (p_marginal + p_time) +
   plot_layout(widths = c(1, 3), guides = "keep")
 h2_combined <- h2_combined + plot_annotation(tag_levels = "A")
 h2_combined
 
 ggsave("../output/Fig2_H2_combined.tiff", h2_combined,
-       width = 24, height = 12, units = "cm", dpi = 300, compression = "lzw")
+       width = 32, height = 16, units = "cm", dpi = 300, compression = "lzw")
 ```
 
 ---
 
 # H3 — Land-use forcing compresses taxonomic response diversity
 
-> **Land-use intensification compresses taxonomic response diversity by reducing the divergence among individual taxa in their sensitivity to the land-use contrast.**
+> **Land-use intensification compresses taxonomic response diversity by
+> reducing the divergence among individual taxa in their sensitivity to
+> the land-use contrast.**
 
 ## Analysis parameters
 
 ```{r h3-params}
+# Pathways included in the H3 divergence analysis.
+# "direct" and the five indirect routes + the two composites.
 pathway_focus <- c(
   "direct", "total_indirect",
   "via_mc1", "via_mc2", "via_root",
   "via_mc1_root", "via_mc2_root"
 )
-eps           <- 1e-4
-pathway_order <- pathway_focus
+
+eps           <- 1e-4    # Small positive guard against exact zeros in denominators
+pathway_order <- pathway_focus   # Controls facet and legend ordering
 ```
 
 ## Data preparation
 
 ```{r h3-data}
+# ══════════════════════════════════════════════════════════════════════════════
+# H3 — ASSEMBLE PER-TAXON PER-WINDOW β ESTIMATES
+#
+# Two data sources are stacked:
+#   h3_direct_win   — the lu→fauna β from sem_results (one row per window)
+#   h3_indirect_win — β-products from indirect_effects, pivoted to long format
+#
+# Both are restricted to non-community taxa (taxon != "all_taxa").
+# The community (all_taxa) β is extracted separately as comm_beta_win and used
+# as the "forcing strength" covariate in the divergence analysis.
+# ══════════════════════════════════════════════════════════════════════════════
+
 h3_direct_win <- sem_results %>%
   filter(predictor == "land_use", response == "fauna") %>%
   transmute(taxon, date_start = as.Date(date_start),
@@ -735,69 +905,120 @@ h3_indirect_win <- indirect_effects %>%
 h3_win_raw <- bind_rows(h3_direct_win, h3_indirect_win) %>%
   filter(path_id %in% pathway_focus)
 
+# Community-level β per (pathway × window): used as forcing-strength covariate
 comm_beta_win <- h3_win_raw %>%
   filter(taxon == "all_taxa") %>%
   select(path_id, date_start, community_beta = std_estimate)
 
+# Individual taxa only (all_taxa excluded from divergence computation)
 h3_taxa_win <- h3_win_raw %>% filter(taxon != "all_taxa")
 ```
 
-## CV computation
+## Divergence computation
 
-```{r h3-cv}
-# CV = SD(β_taxa) / (mean|β_taxa| + eps)
-# Relative dispersion: immune to the mathematical artefact that inflates
-# pairwise distances in high-forcing windows.
-compute_cv <- function(df) {
-  beta_vec <- df$std_estimate
-  tibble(cv     = sd(beta_vec, na.rm = TRUE) /
-                    (mean(abs(beta_vec), na.rm = TRUE) + eps),
-         n_taxa = length(unique(df$taxon)))
+```{r h3-divergence}
+# ══════════════════════════════════════════════════════════════════════════════
+# H3 — ROSS ET AL. DIVERGENCE INDEX
+#
+# For a set of taxon β-values in a given (pathway × window):
+#
+#   D = max(0, range(β) − |max(β) + min(β)|) / range(β)
+#
+# Interpretation
+# ──────────────
+#   D = 1  → β-values span zero symmetrically (true response divergence:
+#             some taxa positively affected, some negatively)
+#   D = 0  → all taxa respond in the same direction (no divergence)
+#   0 < D < 1 → intermediate divergence
+#
+# In the rolling-window SEM, each taxon's β is the slope of the activity–
+# land_use relationship in that window, i.e. f′(land_use). D thus captures
+# how spread across the sign boundary the taxon-specific land-use responses
+# are within each temporal snapshot.
+#
+# IQR-fence outlier removal (1.5 × IQR) is applied per pathway on both the
+# divergence values and the |community β| values before the regression step,
+# to prevent rare extreme windows from dominating the GLS slope.
+# ══════════════════════════════════════════════════════════════════════════════
+
+compute_divergence <- function(df) {
+  betas  <- df$std_estimate[!is.na(df$std_estimate)]
+  n_taxa <- length(unique(df$taxon))
+  if (length(betas) < 2) return(tibble(divergence = NA_real_, n_taxa = n_taxa))
+
+  b_max <- max(betas)
+  b_min <- min(betas)
+  b_rng <- b_max - b_min
+
+  if (b_rng == 0) return(tibble(divergence = 0, n_taxa = n_taxa))
+
+  tibble(
+    divergence = max(0, (b_rng - abs(b_max + b_min)) / b_rng),
+    n_taxa     = n_taxa
+  )
 }
 
-h3_cv <- h3_taxa_win %>%
+h3_div <- h3_taxa_win %>%
   group_by(path_id, date_start) %>%
-  group_modify(~ compute_cv(.x)) %>%
+  group_modify(~ compute_divergence(.x)) %>%
   ungroup() %>%
   left_join(comm_beta_win, by = c("path_id", "date_start")) %>%
-  filter(!is.na(cv), !is.na(community_beta)) %>%
-  mutate(community_beta = abs(community_beta),
-         path_id        = factor(path_id, levels = pathway_order)) %>%
-  # Remove outliers: 1.5 × IQR fence per pathway on both CV and |community β|
+  filter(!is.na(divergence), !is.na(community_beta)) %>%
+  # Use absolute forcing strength on x-axis
+  mutate(
+    community_beta = abs(community_beta),
+    path_id        = factor(path_id, levels = pathway_order)
+  ) %>%
+  # IQR-fence outliers per pathway on both axes
   group_by(path_id) %>%
   mutate(
-    q1_cv    = quantile(cv,             0.25, na.rm = TRUE),
-    q3_cv    = quantile(cv,             0.75, na.rm = TRUE),
-    iqr_cv   = q3_cv - q1_cv,
+    q1_d     = quantile(divergence,     0.25, na.rm = TRUE),
+    q3_d     = quantile(divergence,     0.75, na.rm = TRUE),
+    iqr_d    = q3_d - q1_d,
     q1_beta  = quantile(community_beta, 0.25, na.rm = TRUE),
     q3_beta  = quantile(community_beta, 0.75, na.rm = TRUE),
     iqr_beta = q3_beta - q1_beta
   ) %>%
-  filter(cv             >= (q1_cv   - 1.5 * iqr_cv)   &
-         cv             <= (q3_cv   + 1.5 * iqr_cv),
-         community_beta >= (q1_beta - 1.5 * iqr_beta) &
-         community_beta <= (q3_beta + 1.5 * iqr_beta)) %>%
+  filter(
+    divergence     >= (q1_d    - 1.5 * iqr_d)    &
+    divergence     <= (q3_d    + 1.5 * iqr_d),
+    community_beta >= (q1_beta - 1.5 * iqr_beta) &
+    community_beta <= (q3_beta + 1.5 * iqr_beta)
+  ) %>%
   ungroup()
 ```
 
-## GLS: CV ~ |community β|
+## GLS regression: divergence ~ |community β|
 
 ```{r h3-gls}
-# GLS with AR(1) error structure: accounts for temporal autocorrelation.
-# Negative slope = stronger forcing → lower inter-taxon response diversity.
-gls_results <- h3_cv %>%
+# ══════════════════════════════════════════════════════════════════════════════
+# H3 — GLS SLOPES WITH AR(1) TEMPORAL CORRELATION
+#
+# For each pathway, fit:
+#   divergence ~ |community β|
+# using GLS with a first-order autoregressive error structure (corAR1) to
+# account for the temporal autocorrelation inherent in rolling-window estimates.
+#
+# A negative slope indicates that higher absolute land-use forcing is associated
+# with *lower* response divergence — i.e. forcing compresses taxon responses.
+# ══════════════════════════════════════════════════════════════════════════════
+
+gls_results <- h3_div %>%
   filter(path_id %in% pathway_focus) %>%
   group_by(path_id) %>%
   group_modify(~ {
     fit <- tryCatch(
-      gls(cv ~ community_beta,
+      gls(divergence ~ community_beta,
           data        = .x,
           correlation = corAR1(form = ~ as.numeric(date_start)),
           method      = "REML"),
       error = function(e) NULL
     )
     if (is.null(fit)) return(tibble())
+
     s <- summary(fit)$tTable
+
+    # Build annotation string: slope + significance stars
     tibble(
       slope = s["community_beta", "Value"],
       se    = s["community_beta", "Std.Error"],
@@ -817,139 +1038,184 @@ gls_results <- h3_cv %>%
   ungroup() %>%
   left_join(path_meta %>% select(path_id, colour), by = "path_id")
 
-annot_pos <- h3_cv %>%
+# Annotation position: top-right corner of each facet
+annot_pos <- h3_div %>%
   group_by(path_id) %>%
-  summarise(x = min(community_beta, na.rm = TRUE),
-            y = max(cv,             na.rm = TRUE), .groups = "drop") %>%
+  summarise(
+    x = min(community_beta, na.rm = TRUE),
+    y = max(divergence,     na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
   left_join(gls_results, by = "path_id") %>%
   mutate(path_id = factor(path_id, levels = pathway_focus))
 ```
 
-## Dual-axis temporal panel helper
+## Temporal dynamics per pathway
 
 ```{r h3-dual-panel-helper}
+# ══════════════════════════════════════════════════════════════════════════════
+# H3 — DUAL-AXIS TEMPORAL PANEL FACTORY
+#
+# make_dual_panel() produces one mini time-series panel for a single pathway.
+# It overlays two LOESS-smoothed time series on a dual y-axis:
+#   Primary axis (left, pathway colour) : divergence
+#   Secondary axis (right, grey)        : |community β|
+#
+# Both axes are rescaled to the same coordinate space so the two lines share
+# the same plotting area; the secondary axis label converts back to β units.
+# Season bands and intervention / irrigation lines are added automatically.
+# ══════════════════════════════════════════════════════════════════════════════
+
+#' Build one dual-axis temporal panel for a given pathway.
+#'
+#' @param pid        Character. One of the pathway_focus IDs.
+#' @param show_xaxis Logical. Whether to display x-axis labels (only TRUE for
+#'                   the bottom panel in the stacked layout).
+#' @return A ggplot object.
 make_dual_panel <- function(pid, show_xaxis = TRUE) {
-  dat        <- h3_cv %>% filter(path_id == pid)
+  dat        <- h3_div %>% filter(path_id == pid)
   path_col   <- path_colours[[pid]]
   path_ltype <- path_ltypes[[pid]]
 
-  cv_rng   <- range(dat$cv,             na.rm = TRUE)
+  # Compute axis limits with 5% padding on each side
+  d_rng    <- range(dat$divergence,     na.rm = TRUE)
   beta_rng <- range(dat$community_beta, na.rm = TRUE)
-  pad_cv   <- diff(cv_rng)   * 0.05
+  pad_d    <- diff(d_rng)    * 0.05
   pad_beta <- diff(beta_rng) * 0.05
-  cv_rng   <- cv_rng   + c(-pad_cv,   pad_cv)
+  d_rng    <- d_rng    + c(-pad_d,    pad_d)
   beta_rng <- beta_rng + c(-pad_beta, pad_beta)
 
-  rescale_b    <- function(x) cv_rng[1] + (x - beta_rng[1]) *
-                                 diff(cv_rng) / diff(beta_rng)
-  rescale_cv_b <- function(x) beta_rng[1] + (x - cv_rng[1]) *
-                                 diff(beta_rng) / diff(cv_rng)
+  # Linear rescaling functions between the two axis domains
+  rescale_b_to_d  <- function(x) d_rng[1] + (x - beta_rng[1]) *
+                                    diff(d_rng) / diff(beta_rng)
+  rescale_d_to_b  <- function(x) beta_rng[1] + (x - d_rng[1]) *
+                                    diff(beta_rng) / diff(d_rng)
 
   dr <- range(dat$date_start, na.rm = TRUE)
 
   p <- ggplot(dat, aes(x = date_start)) +
-    make_season_layers(dr, y_label_pos = cv_rng[2]) +
+    make_season_layers(dr, y_label_pos = d_rng[2]) +
+    # Agricultural events (red dotted) and irrigation (green dotted)
     geom_vline(data = interventions, aes(xintercept = date),
-               colour = "darkred", linetype = "dotted",
+               colour = "darkred",   linetype = "dotted",
                alpha = 0.6, inherit.aes = FALSE) +
     geom_vline(data = irrigation, aes(xintercept = date),
                colour = "darkgreen", linetype = "dotted",
                alpha = 0.6, inherit.aes = FALSE) +
-    geom_hline(yintercept = rescale_b(0),
+    # Zero-β reference line (rescaled to divergence axis)
+    geom_hline(yintercept = rescale_b_to_d(0),
                linetype = "dashed", colour = "grey55", linewidth = 0.3) +
-    geom_point(aes(y = cv), alpha = 0.20, size = 0.8, colour = path_col) +
-    geom_smooth(aes(y = cv),
+    # Raw divergence points (very transparent)
+    geom_point(aes(y = divergence), alpha = 0.20, size = 0.9, colour = path_col) +
+    # LOESS: divergence (coloured, pathway linetype)
+    geom_smooth(aes(y = divergence),
                 method = "loess", span = 0.10, se = FALSE,
-                colour = path_col, linetype = path_ltype, linewidth = 0.85) +
-    geom_smooth(aes(y = rescale_b(community_beta)),
+                colour = path_col, linetype = path_ltype, linewidth = 0.9) +
+    # LOESS: |community β| (grey, solid, thinner)
+    geom_smooth(aes(y = rescale_b_to_d(community_beta)),
                 method = "loess", span = 0.10, se = FALSE,
-                colour = "grey40", linetype = "solid", linewidth = 0.35) +
+                colour = "grey40", linetype = "solid", linewidth = 0.4) +
     scale_y_continuous(
-      name     = "CV",
-      limits   = cv_rng,
-      sec.axis = sec_axis(transform = rescale_cv_b,
+      name     = "Divergence",
+      limits   = d_rng,
+      sec.axis = sec_axis(transform = rescale_d_to_b,
                           name = "|Community \u03b2|")
     ) +
     scale_x_date(date_labels = "%b %Y", date_breaks = "3 months",
                  expand = expansion(mult = 0.01)) +
     labs(x = NULL) +
-    theme_sem(base_size = 8) +
+    theme_sem(base_size = 10) +
     theme(
-      axis.title.y       = element_text(colour = path_col, size = 9),
-      axis.title.y.right = element_text(colour = "grey35", size = 7),
-      axis.text.y        = element_text(size = 6),
-      axis.text.y.right  = element_text(colour = "grey35", size = 6),
+      axis.title.y       = element_text(colour = path_col, size = 10),
+      axis.title.y.right = element_text(colour = "grey35", size = 9),
+      axis.text.y        = element_text(size = 8),
+      axis.text.y.right  = element_text(colour = "grey35", size = 8),
       panel.border       = element_blank(),
-      axis.line.y.left   = element_line(colour = path_col, linewidth = 0.4),
-      axis.line.y.right  = element_line(colour = "grey35", linewidth = 0.4),
-      axis.line.x.bottom = element_line(colour = "grey20", linewidth = 0.3),
+      axis.line.y.left   = element_line(colour = path_col,  linewidth = 0.4),
+      axis.line.y.right  = element_line(colour = "grey35",  linewidth = 0.4),
+      axis.line.x.bottom = element_line(colour = "grey20",  linewidth = 0.3),
       plot.margin        = margin(t = 4, r = 5, b = 4, l = 2, unit = "pt")
     )
 
   if (!show_xaxis) {
-    p <- p + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+    # Suppress x-axis text for all panels except the bottom one
+    p <- p + theme(axis.text.x  = element_blank(),
+                   axis.ticks.x = element_blank())
   } else {
-    p <- p + theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 6.5))
+    p <- p + theme(axis.text.x = element_text(angle = 35, hjust = 1, size = 9))
   }
   p
 }
 ```
 
-## Figure 3 — Taxonomic response diversity
+## Figure 3 
 
 ```{r fig-h3-combined}
 #| label: fig-h3-combined
 #| fig-cap: >
-#|   **Figure 3. Land-use forcing compresses taxonomic response diversity.**
-#|   (A) Relationship between the coefficient of variation (CV) of individual
-#|   taxon β-estimates and the absolute community-level land-use coefficient
-#|   (|community β|), per pathway. Each point = one rolling window. Lines =
-#|   OLS fits; slopes estimated by GLS with AR(1) error structure and annotated
-#|   with slope and significance (*** p < 0.001). Low CV = convergence of
-#|   taxon-specific responses; high CV = divergence.
-#|   (B–H) Temporal co-variation of CV (coloured line; left axis) and
+#|   **Land-use forcing compresses taxonomic response diversity
+#|   (Ross et al. divergence).**
+#|   (A) Relationship between the Ross et al. divergence index and the absolute
+#|   community-level land-use β (|community β|), per pathway. Divergence = 1
+#|   when taxon β-values span zero symmetrically; = 0 when all taxa respond in
+#|   the same direction. Each point = one rolling window. Lines = OLS fits;
+#|   slopes estimated by GLS with AR(1) error structure and annotated with
+#|   slope and significance (*** p < 0.001).
+#|   (B–H) Temporal co-variation of divergence (coloured line; left axis) and
 #|   |community β| (grey line; right axis) per pathway, as LOESS smoothers
 #|   (span = 0.10). Shaded bands = meteorological seasons. Dotted red lines =
 #|   agricultural interventions; dotted green lines = irrigation events.
-#| fig-width: 16
-#| fig-height: 8
+#| fig-width: 18
+#| fig-height: 30
 
+# ── Left column: scatter of divergence vs. |community β| ─────────────────────
+# One facet per pathway (7 facets stacked vertically).
+# OLS line shown in grey with 70% CI ribbon; GLS slope annotated top-right.
 p_scatter <- ggplot(
-  h3_cv %>%
+  h3_div %>%
     filter(path_id %in% pathway_focus) %>%
     mutate(path_id = factor(path_id, levels = pathway_focus)),
-  aes(x = community_beta, y = cv, colour = path_id)
+  aes(x = community_beta, y = divergence, colour = path_id)
 ) +
   facet_wrap(~ path_id, ncol = 1, labeller = as_labeller(path_labels)) +
-  geom_point(alpha = 0.25, size = 1) +
+  geom_point(alpha = 0.25, size = 1.2) +
   geom_smooth(method = "lm", formula = y ~ x,
               colour = "grey20", fill = "grey70",
-              linewidth = 0.75, alpha = 0.20) +
+              linewidth = 0.8, alpha = 0.20) +
+  # GLS slope annotation: top-right of each facet
   geom_text(
     data        = annot_pos,
     mapping     = aes(label = label),
     x = Inf, y = Inf, hjust = 1.1, vjust = 1.5,
-    inherit.aes = FALSE, size = 3,
+    inherit.aes = FALSE, size = 3.5,
     colour = "black", fontface = "italic"
   ) +
   scale_colour_manual(values = path_colours, guide = "none") +
-  labs(x = "|Community \u03b2|", y = "CV across taxa") +
-  theme_sem(base_size = 8) +
-  theme(strip.text  = element_text(size = 7, face = "bold"),
-        axis.text   = element_text(size = 6.5),
-        plot.margin = margin(t = 5, r = 8, b = 5, l = 5, unit = "pt"))
+  labs(x = "|Community \u03b2|", y = "Divergence (Ross et al.)") +
+  theme_sem(base_size = 10) +
+  theme(
+    strip.text  = element_text(size = 9, face = "bold"),
+    axis.text   = element_text(size = 8.5),
+    axis.title  = element_text(size = 10),
+    plot.margin = margin(t = 5, r = 8, b = 5, l = 5, unit = "pt")
+  )
 
-p_direct      <- make_dual_panel("direct",         show_xaxis = FALSE)
-p_indirect    <- make_dual_panel("total_indirect",  show_xaxis = FALSE)
-p_via_mc1     <- make_dual_panel("via_mc1",         show_xaxis = FALSE)
-p_via_mc2     <- make_dual_panel("via_mc2",         show_xaxis = FALSE)
-p_via_root    <- make_dual_panel("via_root",        show_xaxis = FALSE)
-p_via_mc1_root<- make_dual_panel("via_mc1_root",    show_xaxis = FALSE)
-p_via_mc2_root<- make_dual_panel("via_mc2_root",    show_xaxis = TRUE)
+# ── Right column: temporal dual-axis panels per pathway ───────────────────────
+# Stacked vertically; only the bottom panel shows x-axis labels.
+p_direct       <- make_dual_panel("direct",        show_xaxis = FALSE)
+p_indirect     <- make_dual_panel("total_indirect", show_xaxis = FALSE)
+p_via_mc1      <- make_dual_panel("via_mc1",        show_xaxis = FALSE)
+p_via_mc2      <- make_dual_panel("via_mc2",        show_xaxis = FALSE)
+p_via_root     <- make_dual_panel("via_root",       show_xaxis = FALSE)
+p_via_mc1_root <- make_dual_panel("via_mc1_root",   show_xaxis = FALSE)
+p_via_mc2_root <- make_dual_panel("via_mc2_root",   show_xaxis = TRUE)
 
 temporal_stack <- (p_direct / p_indirect / p_via_mc1 / p_via_mc2 /
                    p_via_root / p_via_mc1_root / p_via_mc2_root)
 
+# ── Assemble final figure ─────────────────────────────────────────────────────
+# scatter (width 1) | temporal stack (width 2.5)
+# Panel tags: A = scatter; B–H = temporal panels
 h3_final <- (p_scatter | temporal_stack) +
   plot_layout(widths = c(1, 2.5)) +
   plot_annotation(tag_levels = "A")
@@ -957,6 +1223,6 @@ h3_final <- (p_scatter | temporal_stack) +
 h3_final
 
 ggsave("../output/Fig3_H3_final.tiff", h3_final,
-       width = 20, height = 30, units = "cm",
+       width = 22, height = 34, units = "cm",
        dpi = 300, compression = "lzw")
 ```

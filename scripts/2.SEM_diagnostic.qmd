@@ -70,23 +70,21 @@ The calibration evaluates the full factorial combination of:
 
 | Parameter | Candidates | Notation |
 |----|----|----|
-| Window duration | 14, 21, 30 days | $W \in \{14, 21, 30\}$ |
-| Min. completeness | 10%, 20%, 30%, 40% | $C_{\min} \in \{0.1, 0.2, 0.3, 0.4\}$ |
-| Transformation | none, √, Freeman–Tukey, log(1+x), Hellinger | $f \in \{id, \sqrt{\cdot}, FT, \log, H\}$ |
+| Window duration | 10, 14, 21, 30 days | $W \in \{10, 14, 21, 30\}$ |
+| Min. completeness | 5%, 10%, 20%, 30% | $C_{\min} \in \{0.05, 0.1, 0.2, 0.3\}$ |
+| Transformation | none, Freeman–Tukey, log(1+x), Hellinger | $f \in \{id, FT, \log, H\}$ |
 
-This yields **60 configurations**, each tested on a random subsample of 100 windows for computational efficiency.
+This yields **64 configurations**, each tested on a random subsample of 30 windows for computational efficiency.
 
 The transformation candidates are:
 
-$$f_{\text{sqrt}}(x) = \sqrt{x + |\min(x)| \cdot \mathbf{1}_{[\min(x) \le 0]}} \tag{S2.1}$$
+$$f_{\text{FT}}(x) = \sqrt{x} + \sqrt{x+1} \tag{S2.1}$$
 
-$$f_{\text{FT}}(x) = \sqrt{x} + \sqrt{x+1} \tag{S2.2}$$
+$$f_{\text{log}}(x) = \log\!\left(1 + x + |\min(x)| \cdot \mathbf{1}_{[\min(x) \le 0]}\right) \tag{S2.2}$$
 
-$$f_{\text{log}}(x) = \log\!\left(1 + x + |\min(x)| \cdot \mathbf{1}_{[\min(x) \le 0]}\right) \tag{S2.3}$$
+$$f_{\text{Hellinger}}(x) = \sqrt{\frac{x}{\sum x}} \tag{S2.3}$$
 
-$$f_{\text{Hellinger}}(x) = \sqrt{\frac{x}{\sum x}} \tag{S2.4}$$
-
-The Freeman–Tukey double-square-root (S2.2) and Hellinger (S2.4) are particularly suited to count data with many zeros. For transformations requiring strictly positive input (S2.1, S2.3), a small positive shift is applied when $\min(x) \leq 0$.
+The Freeman–Tukey double-square-root and Hellinger are particularly suited to count data with many zeros. For transformations requiring strictly positive input, a small positive shift is applied when $\min(x) \leq 0$.
 
 ## Completeness definition {#sec-completeness}
 
@@ -171,6 +169,7 @@ Using the calibrated configuration, every window in the full time series is eval
 ```{r setup}
 #| echo: true
 invisible(Sys.setlocale("LC_TIME", "C"))
+set.seed(123)
 
 libs <- c(
   "tidyverse", "lubridate",
@@ -236,7 +235,7 @@ create_rolling_windows <- function(df, window_days, step_days = 1) {
 
 ### Transformation functions
 
-The five candidate transformations described in Section 2.3 (Eqs S2.1–S2.4):
+The five candidate transformations described in Section 2.3 (Eqs S2.1–S2.3):
 
 ```{r fn-transforms}
 #| echo: true
@@ -440,9 +439,9 @@ run_sem_pipeline <- function(taxon_var, data_raw, m_indices, transfo_type,
 #| echo: true
 # Full factorial parameter grid (§2.3)
 sensibility_grid <- expand.grid(
-  w_days     = c(14, 21, 30),
-  m_rate_val = c(0.1, 0.2, 0.3, 0.4),
-  transfo    = c("none", "sqrt", "sqrt_plus_one", "log", "hellinger"),
+  w_days     = c(10, 14, 21, 30),
+  m_rate_val = c(0.05, 0.1, 0.2, 0.3),
+  transfo    = c("none", "sqrt_plus_one", "log", "hellinger"),
   stringsAsFactors = FALSE
 )
 
@@ -457,7 +456,7 @@ quiet_test <- purrr::safely(function(w_days, m_rate_val, transfo_type,
     transfo_type = transfo_type,
     window_days  = w_days,
     min_rate     = m_rate_val,
-    n_windows    = 100    # random subsample — sufficient to characterise behaviour
+    n_windows    = 50    # random subsample — sufficient to characterise behaviour
   )
   if (is.null(res) || nrow(res) == 0) return(NULL)
 
@@ -478,6 +477,7 @@ quiet_test <- purrr::safely(function(w_days, m_rate_val, transfo_type,
       avg_r2_marginal    = mean(r2_marginal,           na.rm = TRUE),
       avg_r2_conditional = mean(r2_cond,               na.rm = TRUE),
       delta_r2           = mean(r2_cond - r2_marginal, na.rm = TRUE),
+      n_converged = sum(!is.na(prop_valid_models)),
       .groups = "drop"
     )
 })
@@ -503,6 +503,9 @@ benchmark_results <- map_dfr(safe_results, "result")
 The two-step selection procedure (Eqs S3.6–S3.7) identifies the optimal (window, completeness, transformation) combination.
 
 ```{r global-optimization}
+#| tbl-cap: >
+#|  Top 5 configurations ranked by joint validity then mean R²m.
+#|  Highlighted row = selected configuration.
 EXPECTED_RESPONSES <- c("fauna", "root", "microclimate_1", "microclimate_2")
 
 # Step 1 — best transformation per equation (Eq S3.6)
@@ -545,8 +548,7 @@ global_optimization %>%
     "R²m (mean)"             = mean_r2,
     "Score"                  = global_score
   ) %>%
-  kable(caption = "Table S2.1 — Top 5 configurations ranked by joint validity then mean R²m.
-        Highlighted row = selected configuration.") %>%
+  kable() %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
                 full_width = FALSE, position = "center") %>%
   row_spec(0, bold = TRUE, background = "#f2f2f2") %>%
@@ -668,10 +670,10 @@ ggplot(bar_dat, aes(x = prop_valid_models, y = response_label, fill = failure_mo
 
 ## Temporal window retention {#sec-temporal}
 
-Every window in the full time series is evaluated under the selected configuration. Windows where fewer than 50 % of the four equations satisfy all criteria concurrently are excluded from the rolling-window SEM in Script S3.
+Every window in the full time series is evaluated under the selected configuration. Windows where fewer than 75 % of the four equations satisfy all criteria concurrently are excluded from the rolling-window SEM in Script S3.
 
 ```{r window-selection}
-MIN_VALID_PROP <- 0.5
+MIN_VALID_PROP <- 0.75
 
 message("Running full window evaluation under selected configuration...")
 full_diag <- suppressMessages(

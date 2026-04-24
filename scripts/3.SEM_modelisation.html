@@ -3357,8 +3357,8 @@ Purpose of this document
 <p>This script performs <strong>all modelling</strong> and writes the result databases that <code>4_SEM_results_analysis.qmd</code> reads for figures and tables. No figures are produced here — keeping computation and presentation strictly separated makes it easy to re-run the visualisation without refitting any model.</p>
 <table class="caption-top table">
 <colgroup>
-<col style="width: 36%">
-<col style="width: 63%">
+<col style="width: 37%">
+<col style="width: 62%">
 </colgroup>
 <thead>
 <tr class="header">
@@ -3447,7 +3447,7 @@ Purpose of this document
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>libs <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;tidyverse&quot;</span>, <span class="st">&quot;lubridate&quot;</span>, <span class="st">&quot;piecewiseSEM&quot;</span>,</span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;purrr&quot;</span>, <span class="st">&quot;nlme&quot;</span>, <span class="st">&quot;jsonlite&quot;</span>,</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;knitr&quot;</span>, <span class="st">&quot;kableExtra&quot;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;knitr&quot;</span>, <span class="st">&quot;kableExtra&quot;</span>, <span class="st">&quot;MuMIn&quot;</span>         </span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">lapply</span>(libs, require, <span class="at">character.only =</span> <span class="cn">TRUE</span>))</span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
@@ -3479,8 +3479,8 @@ Purpose of this document
 <span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  MIN_RATE               <span class="ot">&lt;-</span> <span class="fl">0.3</span></span>
 <span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  TRANSFO_ROOT           <span class="ot">&lt;-</span> <span class="st">&quot;log&quot;</span></span>
 <span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  TRANSFO_FAUNA          <span class="ot">&lt;-</span> <span class="st">&quot;log&quot;</span></span>
-<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  TRANSFO_MICROCLIMATE_1 <span class="ot">&lt;-</span> <span class="st">&quot;none&quot;</span></span>
-<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  TRANSFO_MICROCLIMATE_2 <span class="ot">&lt;-</span> <span class="st">&quot;none&quot;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  TRANSFO_MICROCLIMATE_1 <span class="ot">&lt;-</span> <span class="st">&quot;sqrt_plus_one&quot;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  TRANSFO_MICROCLIMATE_2 <span class="ot">&lt;-</span> <span class="st">&quot;sqrt_plus_one&quot;</span></span>
 <span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">warning</span>(<span class="st">&quot;model_parameters.txt not found — using hardcoded fallback values.&quot;</span>)</span>
 <span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
@@ -3570,18 +3570,18 @@ Purpose of this document
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── LME controls ──────────────────────────────────────────────────────────────</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>lme_ctrl <span class="ot">&lt;-</span> nlme<span class="sc">::</span><span class="fu">lmeControl</span>(<span class="at">msMaxIter =</span> <span class="dv">200</span>, <span class="at">opt =</span> <span class="st">&quot;optim&quot;</span>)</span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co"># ── R² for nlme::lme (variance-based) ────────────────────────────────────────</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co"># R²m (marginal)    = var(fixed predictions) / var(observed)</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># R²c (conditional) = var(full predictions)  / var(observed)</span></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>r2_lme <span class="ot">&lt;-</span> <span class="cf">function</span>(m) {</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(m)) <span class="fu">return</span>(<span class="fu">c</span>(<span class="at">R2m =</span> <span class="cn">NA_real_</span>, <span class="at">R2c =</span> <span class="cn">NA_real_</span>))</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tryCatch</span>({</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    y   <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(nlme<span class="sc">::</span><span class="fu">getResponse</span>(m))</span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    ss  <span class="ot">&lt;-</span> <span class="fu">var</span>(y, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">is.na</span>(ss) <span class="sc">||</span> ss <span class="sc">==</span> <span class="dv">0</span>) <span class="fu">return</span>(<span class="fu">c</span>(<span class="at">R2m =</span> <span class="cn">NA_real_</span>, <span class="at">R2c =</span> <span class="cn">NA_real_</span>))</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    r2m <span class="ot">&lt;-</span> <span class="fu">var</span>(<span class="fu">as.numeric</span>(<span class="fu">fitted</span>(m, <span class="at">level =</span> <span class="dv">0</span>)),                <span class="at">na.rm =</span> <span class="cn">TRUE</span>) <span class="sc">/</span> ss</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    r2c <span class="ot">&lt;-</span> <span class="fu">var</span>(<span class="fu">as.numeric</span>(<span class="fu">fitted</span>(m, <span class="at">level =</span> <span class="fu">length</span>(m<span class="sc">$</span>groups))), <span class="at">na.rm =</span> <span class="cn">TRUE</span>) <span class="sc">/</span> ss</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="at">R2m =</span> <span class="fu">min</span>(<span class="fu">max</span>(r2m, <span class="dv">0</span>), <span class="dv">1</span>), <span class="at">R2c =</span> <span class="fu">min</span>(<span class="fu">max</span>(r2c, <span class="dv">0</span>), <span class="dv">1</span>))</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co"># ── R² pour nlme::lme — Nakagawa &amp; Schielzeth 2013 via MuMIn ─────────────────</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co"># MuMIn::r.squaredGLMM returns a matrix [method × (R2m, R2c)].</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># For Gaussian models (lme), the &quot;delta&quot; method is prioritized;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="co"># if it fails, the first available row is used.</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>r2_lme <span class="ot">&lt;-</span> <span class="cf">function</span>(m) {</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(m)) <span class="fu">return</span>(<span class="fu">c</span>(<span class="at">R2m =</span> <span class="cn">NA_real_</span>, <span class="at">R2c =</span> <span class="cn">NA_real_</span>))</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tryCatch</span>({</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    r2_mat <span class="ot">&lt;-</span> MuMIn<span class="sc">::</span><span class="fu">r.squaredGLMM</span>(m)       </span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    row_nm  <span class="ot">&lt;-</span> <span class="fu">rownames</span>(r2_mat)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    idx     <span class="ot">&lt;-</span> <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(row_nm) <span class="sc">&amp;&amp;</span> <span class="st">&quot;delta&quot;</span> <span class="sc">%in%</span> row_nm) <span class="st">&quot;delta&quot;</span> <span class="cf">else</span> <span class="dv">1</span>L</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="at">R2m =</span> <span class="fu">as.numeric</span>(r2_mat[idx, <span class="st">&quot;R2m&quot;</span>]),</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>      <span class="at">R2c =</span> <span class="fu">as.numeric</span>(r2_mat[idx, <span class="st">&quot;R2c&quot;</span>]))</span>
 <span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  }, <span class="at">error =</span> \(e) <span class="fu">c</span>(<span class="at">R2m =</span> <span class="cn">NA_real_</span>, <span class="at">R2c =</span> <span class="cn">NA_real_</span>))</span>
 <span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a></span>
@@ -3631,55 +3631,61 @@ Purpose of this document
 <span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>                    <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">&quot;Spring&quot;</span>, <span class="st">&quot;Summer&quot;</span>, <span class="st">&quot;Autumn&quot;</span>, <span class="st">&quot;Winter&quot;</span>))</span>
 <span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Step 1: null model (intercept only + random effects)</span></span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>m_null <span class="ot">&lt;-</span> <span class="fu">suppressWarnings</span>(</span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  nlme<span class="sc">::</span><span class="fu">lme</span>(</span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>    y_trans <span class="sc">~</span> <span class="dv">1</span>,</span>
-<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">data        =</span> h1_model_data,</span>
-<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">random      =</span> <span class="sc">~</span> <span class="dv">1</span> <span class="sc">|</span> orientation <span class="sc">/</span> depth,</span>
-<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">correlation =</span> nlme<span class="sc">::</span><span class="fu">corAR1</span>(<span class="at">form =</span> <span class="sc">~</span> <span class="dv">1</span> <span class="sc">|</span> orientation <span class="sc">/</span> depth),</span>
-<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">control     =</span> lme_ctrl</span>
-<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>h1_resid <span class="ot">&lt;-</span> <span class="fu">residuals</span>(m_null, <span class="at">type =</span> <span class="st">&quot;response&quot;</span>)</span>
-<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a><span class="co"># Step 2: OLS on residuals</span></span>
-<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>m_h1_step2 <span class="ot">&lt;-</span> <span class="fu">lm</span>(h1_resid <span class="sc">~</span> h1_model_data<span class="sc">$</span>land_use)</span>
-<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>step2_summ  <span class="ot">&lt;-</span> <span class="fu">summary</span>(m_h1_step2)</span>
-<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>beta_lu     <span class="ot">&lt;-</span> <span class="fu">coef</span>(m_h1_step2)[<span class="st">&quot;h1_model_data$land_use&quot;</span>]</span>
-<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>se_lu       <span class="ot">&lt;-</span> step2_summ<span class="sc">$</span>coefficients[<span class="st">&quot;h1_model_data$land_use&quot;</span>, <span class="st">&quot;Std. Error&quot;</span>]</span>
-<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>t_lu        <span class="ot">&lt;-</span> step2_summ<span class="sc">$</span>coefficients[<span class="st">&quot;h1_model_data$land_use&quot;</span>, <span class="st">&quot;t value&quot;</span>]</span>
-<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>p_lu        <span class="ot">&lt;-</span> step2_summ<span class="sc">$</span>coefficients[<span class="st">&quot;h1_model_data$land_use&quot;</span>, <span class="st">&quot;Pr(&gt;|t|)&quot;</span>]</span>
-<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>sigma_pooled <span class="ot">&lt;-</span> <span class="fu">sd</span>(h1_resid, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>hedges_g     <span class="ot">&lt;-</span> beta_lu <span class="sc">/</span> sigma_pooled</span>
-<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>r2_null      <span class="ot">&lt;-</span> <span class="fu">r2_lme</span>(m_null)</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Single model: fauna ~ land_use + random(orientation/depth) + AR(1)</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a><span class="co"># This is the H1 model proper. The adjusted values below strip only the</span></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="co"># random effects, preserving the intercept and land_use fixed prediction,</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="co"># so the Y axis is fauna on the transformed scale — not residuals.</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>m_h1 <span class="ot">&lt;-</span> <span class="fu">suppressWarnings</span>(</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>  nlme<span class="sc">::</span><span class="fu">lme</span>(</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>    y_trans <span class="sc">~</span> land_use,</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">data        =</span> h1_model_data,</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">random      =</span> <span class="sc">~</span> <span class="dv">1</span> <span class="sc">|</span> orientation <span class="sc">/</span> depth,</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">correlation =</span> nlme<span class="sc">::</span><span class="fu">corAR1</span>(<span class="at">form =</span> <span class="sc">~</span> <span class="dv">1</span> <span class="sc">|</span> orientation <span class="sc">/</span> depth),</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">control     =</span> lme_ctrl</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a><span class="co"># adjusted = fitted (fixed effects only, level = 0) + marginal residuals</span></span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a><span class="co"># = observed - random effects        ← real fauna scale, spatial confound removed</span></span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>h1_adj_values <span class="ot">&lt;-</span> <span class="fu">fitted</span>(m_h1, <span class="at">level =</span> <span class="dv">0</span>) <span class="sc">+</span> <span class="fu">residuals</span>(m_h1, <span class="at">type =</span> <span class="st">&quot;response&quot;</span>)</span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a><span class="co"># Extract H1 fixed-effect estimates directly from the single model</span></span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>h1_tbl      <span class="ot">&lt;-</span> <span class="fu">summary</span>(m_h1)<span class="sc">$</span>tTable</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>beta_lu     <span class="ot">&lt;-</span> h1_tbl[<span class="st">&quot;land_use&quot;</span>, <span class="st">&quot;Value&quot;</span>]</span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>se_lu       <span class="ot">&lt;-</span> h1_tbl[<span class="st">&quot;land_use&quot;</span>, <span class="st">&quot;Std.Error&quot;</span>]</span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>t_lu        <span class="ot">&lt;-</span> h1_tbl[<span class="st">&quot;land_use&quot;</span>, <span class="st">&quot;t-value&quot;</span>]</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>p_lu        <span class="ot">&lt;-</span> h1_tbl[<span class="st">&quot;land_use&quot;</span>, <span class="st">&quot;p-value&quot;</span>]</span>
 <span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a>h1_adj <span class="ot">&lt;-</span> h1_model_data <span class="sc">%&gt;%</span></span>
-<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">adj_value =</span> <span class="fu">as.numeric</span>(h1_resid), <span class="at">transformation =</span> TRANSFO_FAUNA)</span>
-<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a><span class="fu">write.csv</span>(h1_adj, <span class="st">&quot;../output/H1_adjusted_values.csv&quot;</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a>sigma_pooled <span class="ot">&lt;-</span> <span class="fu">sd</span>(h1_adj_values, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>hedges_g     <span class="ot">&lt;-</span> beta_lu <span class="sc">/</span> sigma_pooled</span>
+<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a>r2_h1        <span class="ot">&lt;-</span> <span class="fu">r2_lme</span>(m_h1)</span>
 <span id="cb6-43"><a href="#cb6-43" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-44"><a href="#cb6-44" aria-hidden="true" tabindex="-1"></a>h1_summary <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
-<span id="cb6-45"><a href="#cb6-45" aria-hidden="true" tabindex="-1"></a>  <span class="at">beta_land_use       =</span> beta_lu,</span>
-<span id="cb6-46"><a href="#cb6-46" aria-hidden="true" tabindex="-1"></a>  <span class="at">se_land_use         =</span> se_lu,</span>
-<span id="cb6-47"><a href="#cb6-47" aria-hidden="true" tabindex="-1"></a>  <span class="at">t_value             =</span> t_lu,</span>
-<span id="cb6-48"><a href="#cb6-48" aria-hidden="true" tabindex="-1"></a>  <span class="at">p_value             =</span> p_lu,</span>
-<span id="cb6-49"><a href="#cb6-49" aria-hidden="true" tabindex="-1"></a>  <span class="at">hedges_g            =</span> hedges_g,</span>
-<span id="cb6-50"><a href="#cb6-50" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_null_marginal    =</span> <span class="fu">as.numeric</span>(r2_null[<span class="st">&quot;R2m&quot;</span>]),</span>
-<span id="cb6-51"><a href="#cb6-51" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_null_conditional =</span> <span class="fu">as.numeric</span>(r2_null[<span class="st">&quot;R2c&quot;</span>]),</span>
-<span id="cb6-52"><a href="#cb6-52" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_step2            =</span> step2_summ<span class="sc">$</span>r.squared,</span>
-<span id="cb6-53"><a href="#cb6-53" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_obs               =</span> <span class="fu">nrow</span>(h1_model_data),</span>
-<span id="cb6-54"><a href="#cb6-54" aria-hidden="true" tabindex="-1"></a>  <span class="at">transformation      =</span> TRANSFO_FAUNA</span>
-<span id="cb6-55"><a href="#cb6-55" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb6-56"><a href="#cb6-56" aria-hidden="true" tabindex="-1"></a><span class="fu">write.csv</span>(h1_summary, <span class="st">&quot;../output/H1_model_summary.csv&quot;</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb6-57"><a href="#cb6-57" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-58"><a href="#cb6-58" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="fu">sprintf</span>(</span>
-<span id="cb6-59"><a href="#cb6-59" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;H1 | β = %.3f | g = %.2f | p %s | R²(lu) = %.3f | R²c(null) = %.3f&quot;</span>,</span>
-<span id="cb6-60"><a href="#cb6-60" aria-hidden="true" tabindex="-1"></a>  beta_lu, hedges_g,</span>
-<span id="cb6-61"><a href="#cb6-61" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (p_lu <span class="sc">&lt;</span> <span class="fl">0.001</span>) <span class="st">&quot;&lt; 0.001&quot;</span> <span class="cf">else</span> <span class="fu">sprintf</span>(<span class="st">&quot;= %.3f&quot;</span>, p_lu),</span>
-<span id="cb6-62"><a href="#cb6-62" aria-hidden="true" tabindex="-1"></a>  step2_summ<span class="sc">$</span>r.squared, <span class="fu">as.numeric</span>(r2_null[<span class="st">&quot;R2c&quot;</span>])</span>
-<span id="cb6-63"><a href="#cb6-63" aria-hidden="true" tabindex="-1"></a>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb6-44"><a href="#cb6-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-45"><a href="#cb6-45" aria-hidden="true" tabindex="-1"></a>h1_adj <span class="ot">&lt;-</span> h1_model_data <span class="sc">%&gt;%</span></span>
+<span id="cb6-46"><a href="#cb6-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">adj_value =</span> <span class="fu">as.numeric</span>(h1_adj_values), <span class="at">transformation =</span> TRANSFO_FAUNA)</span>
+<span id="cb6-47"><a href="#cb6-47" aria-hidden="true" tabindex="-1"></a><span class="fu">write.csv</span>(h1_adj, <span class="st">&quot;../output/H1_adjusted_values.csv&quot;</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb6-48"><a href="#cb6-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-49"><a href="#cb6-49" aria-hidden="true" tabindex="-1"></a>h1_summary <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb6-50"><a href="#cb6-50" aria-hidden="true" tabindex="-1"></a>  <span class="at">beta_land_use       =</span> beta_lu,</span>
+<span id="cb6-51"><a href="#cb6-51" aria-hidden="true" tabindex="-1"></a>  <span class="at">se_land_use         =</span> se_lu,</span>
+<span id="cb6-52"><a href="#cb6-52" aria-hidden="true" tabindex="-1"></a>  <span class="at">t_value             =</span> t_lu,</span>
+<span id="cb6-53"><a href="#cb6-53" aria-hidden="true" tabindex="-1"></a>  <span class="at">p_value             =</span> p_lu,</span>
+<span id="cb6-54"><a href="#cb6-54" aria-hidden="true" tabindex="-1"></a>  <span class="at">hedges_g            =</span> hedges_g,</span>
+<span id="cb6-55"><a href="#cb6-55" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_marginal         =</span> <span class="fu">as.numeric</span>(r2_h1[<span class="st">&quot;R2m&quot;</span>]),   <span class="co"># land_use fixed effect</span></span>
+<span id="cb6-56"><a href="#cb6-56" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_conditional      =</span> <span class="fu">as.numeric</span>(r2_h1[<span class="st">&quot;R2c&quot;</span>]),   <span class="co"># fixed + random</span></span>
+<span id="cb6-57"><a href="#cb6-57" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_obs               =</span> <span class="fu">nrow</span>(h1_model_data),</span>
+<span id="cb6-58"><a href="#cb6-58" aria-hidden="true" tabindex="-1"></a>  <span class="at">transformation      =</span> TRANSFO_FAUNA</span>
+<span id="cb6-59"><a href="#cb6-59" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-60"><a href="#cb6-60" aria-hidden="true" tabindex="-1"></a><span class="fu">write.csv</span>(h1_summary, <span class="st">&quot;../output/H1_model_summary.csv&quot;</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb6-61"><a href="#cb6-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-62"><a href="#cb6-62" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="fu">sprintf</span>(</span>
+<span id="cb6-63"><a href="#cb6-63" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;H1 | β = %.3f | g = %.2f | p %s | R²m = %.3f | R²c = %.3f&quot;</span>,</span>
+<span id="cb6-64"><a href="#cb6-64" aria-hidden="true" tabindex="-1"></a>  beta_lu, </span>
+<span id="cb6-65"><a href="#cb6-65" aria-hidden="true" tabindex="-1"></a>  hedges_g,</span>
+<span id="cb6-66"><a href="#cb6-66" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (p_lu <span class="sc">&lt;</span> <span class="fl">0.001</span>) <span class="st">&quot;&lt; 0.001&quot;</span> <span class="cf">else</span> <span class="fu">sprintf</span>(<span class="st">&quot;= %.3f&quot;</span>, p_lu),</span>
+<span id="cb6-67"><a href="#cb6-67" aria-hidden="true" tabindex="-1"></a>  h1_summary<span class="sc">$</span>r2_marginal, </span>
+<span id="cb6-68"><a href="#cb6-68" aria-hidden="true" tabindex="-1"></a>  h1_summary<span class="sc">$</span>r2_conditional</span>
+<span id="cb6-69"><a href="#cb6-69" aria-hidden="true" tabindex="-1"></a>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <hr>
 </section>
@@ -3947,25 +3953,25 @@ Purpose of this document
 <div class="cell-output cell-output-stdout">
 <pre><code>
 --- Taxon: all_taxa ---
-  389 / 582 windows retained.
+  227 / 586 windows retained.
 
 --- Taxon: acari ---
-  389 / 582 windows retained.
+  227 / 586 windows retained.
 
 --- Taxon: gastropoda ---
-  389 / 582 windows retained.
+  227 / 586 windows retained.
 
 --- Taxon: collembola ---
-  389 / 582 windows retained.
+  227 / 586 windows retained.
 
 --- Taxon: diplopoda ---
-  389 / 582 windows retained.
+  227 / 586 windows retained.
 
 --- Taxon: symphyla ---
-  389 / 582 windows retained.
+  227 / 586 windows retained.
 
 --- Taxon: enchytraeidae ---
-  389 / 582 windows retained.</code></pre>
+  227 / 586 windows retained.</code></pre>
 </div>
 <div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="fu">sprintf</span>(<span class="st">&quot;SEMs complete: %d coefficient rows across %d taxa.&quot;</span>,</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>                <span class="fu">nrow</span>(sem_results_raw), <span class="fu">n_distinct</span>(sem_results_raw<span class="sc">$</span>taxon)))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -4689,7 +4695,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a>This script performs **all modelling** and writes the result databases that <span class="in">`4_SEM_results_analysis.qmd`</span> reads for figures and tables. No figures are produced here — keeping computation and presentation strictly separated makes it easy to re-run the visualisation without refitting any model.</span>
 <span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a>| Output file                | Contents                                       |</span>
-<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a>|----------------------------|------------------------------------------------|</span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a>|---------------------------|---------------------------------------------|</span>
 <span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_adjusted_values.csv`</span>   | Per-observation RE-adjusted faunal counts      |</span>
 <span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_model_summary.csv`</span>     | Fixed-effect estimate, Hedge&#39;s g, p-value      |</span>
 <span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a>| <span class="in">`DAG_coefficients.csv`</span>     | Full-dataset psem path coefficients (all_taxa) |</span>
@@ -4716,7 +4722,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-54"><a href="#cb16-54" aria-hidden="true" tabindex="-1"></a><span class="fu">## Random structures</span></span>
 <span id="cb16-55"><a href="#cb16-55" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb16-56"><a href="#cb16-56" aria-hidden="true" tabindex="-1"></a>| Equation | Random structure | Rationale |</span>
-<span id="cb16-57"><a href="#cb16-57" aria-hidden="true" tabindex="-1"></a>|----|----|----|</span>
+<span id="cb16-57"><a href="#cb16-57" aria-hidden="true" tabindex="-1"></a>|------------------------|------------------------|------------------------|</span>
 <span id="cb16-58"><a href="#cb16-58" aria-hidden="true" tabindex="-1"></a>| microclimate \~ land_use | <span class="in">`~ 1 \| depth`</span> | No orientation recorded for sensors |</span>
 <span id="cb16-59"><a href="#cb16-59" aria-hidden="true" tabindex="-1"></a>| root / fauna \~ … | <span class="in">`~ 1 \| orientation/depth`</span> | Depth nested in orientation |</span>
 <span id="cb16-60"><a href="#cb16-60" aria-hidden="true" tabindex="-1"></a></span>
@@ -4732,7 +4738,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-70"><a href="#cb16-70" aria-hidden="true" tabindex="-1"></a><span class="in">libs &lt;- c(</span></span>
 <span id="cb16-71"><a href="#cb16-71" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;tidyverse&quot;, &quot;lubridate&quot;, &quot;piecewiseSEM&quot;,</span></span>
 <span id="cb16-72"><a href="#cb16-72" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;purrr&quot;, &quot;nlme&quot;, &quot;jsonlite&quot;,</span></span>
-<span id="cb16-73"><a href="#cb16-73" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;knitr&quot;, &quot;kableExtra&quot;</span></span>
+<span id="cb16-73"><a href="#cb16-73" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;knitr&quot;, &quot;kableExtra&quot;, &quot;MuMIn&quot;         </span></span>
 <span id="cb16-74"><a href="#cb16-74" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
 <span id="cb16-75"><a href="#cb16-75" aria-hidden="true" tabindex="-1"></a><span class="in">invisible(lapply(libs, require, character.only = TRUE))</span></span>
 <span id="cb16-76"><a href="#cb16-76" aria-hidden="true" tabindex="-1"></a></span>
@@ -4766,8 +4772,8 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-104"><a href="#cb16-104" aria-hidden="true" tabindex="-1"></a><span class="in">  MIN_RATE               &lt;- 0.3</span></span>
 <span id="cb16-105"><a href="#cb16-105" aria-hidden="true" tabindex="-1"></a><span class="in">  TRANSFO_ROOT           &lt;- &quot;log&quot;</span></span>
 <span id="cb16-106"><a href="#cb16-106" aria-hidden="true" tabindex="-1"></a><span class="in">  TRANSFO_FAUNA          &lt;- &quot;log&quot;</span></span>
-<span id="cb16-107"><a href="#cb16-107" aria-hidden="true" tabindex="-1"></a><span class="in">  TRANSFO_MICROCLIMATE_1 &lt;- &quot;none&quot;</span></span>
-<span id="cb16-108"><a href="#cb16-108" aria-hidden="true" tabindex="-1"></a><span class="in">  TRANSFO_MICROCLIMATE_2 &lt;- &quot;none&quot;</span></span>
+<span id="cb16-107"><a href="#cb16-107" aria-hidden="true" tabindex="-1"></a><span class="in">  TRANSFO_MICROCLIMATE_1 &lt;- &quot;sqrt_plus_one&quot;</span></span>
+<span id="cb16-108"><a href="#cb16-108" aria-hidden="true" tabindex="-1"></a><span class="in">  TRANSFO_MICROCLIMATE_2 &lt;- &quot;sqrt_plus_one&quot;</span></span>
 <span id="cb16-109"><a href="#cb16-109" aria-hidden="true" tabindex="-1"></a><span class="in">  warning(&quot;model_parameters.txt not found — using hardcoded fallback values.&quot;)</span></span>
 <span id="cb16-110"><a href="#cb16-110" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
 <span id="cb16-111"><a href="#cb16-111" aria-hidden="true" tabindex="-1"></a></span>
@@ -4860,18 +4866,18 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-198"><a href="#cb16-198" aria-hidden="true" tabindex="-1"></a><span class="in"># ── LME controls ──────────────────────────────────────────────────────────────</span></span>
 <span id="cb16-199"><a href="#cb16-199" aria-hidden="true" tabindex="-1"></a><span class="in">lme_ctrl &lt;- nlme::lmeControl(msMaxIter = 200, opt = &quot;optim&quot;)</span></span>
 <span id="cb16-200"><a href="#cb16-200" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-201"><a href="#cb16-201" aria-hidden="true" tabindex="-1"></a><span class="in"># ── R² for nlme::lme (variance-based) ────────────────────────────────────────</span></span>
-<span id="cb16-202"><a href="#cb16-202" aria-hidden="true" tabindex="-1"></a><span class="in"># R²m (marginal)    = var(fixed predictions) / var(observed)</span></span>
-<span id="cb16-203"><a href="#cb16-203" aria-hidden="true" tabindex="-1"></a><span class="in"># R²c (conditional) = var(full predictions)  / var(observed)</span></span>
-<span id="cb16-204"><a href="#cb16-204" aria-hidden="true" tabindex="-1"></a><span class="in">r2_lme &lt;- function(m) {</span></span>
-<span id="cb16-205"><a href="#cb16-205" aria-hidden="true" tabindex="-1"></a><span class="in">  if (is.null(m)) return(c(R2m = NA_real_, R2c = NA_real_))</span></span>
-<span id="cb16-206"><a href="#cb16-206" aria-hidden="true" tabindex="-1"></a><span class="in">  tryCatch({</span></span>
-<span id="cb16-207"><a href="#cb16-207" aria-hidden="true" tabindex="-1"></a><span class="in">    y   &lt;- as.numeric(nlme::getResponse(m))</span></span>
-<span id="cb16-208"><a href="#cb16-208" aria-hidden="true" tabindex="-1"></a><span class="in">    ss  &lt;- var(y, na.rm = TRUE)</span></span>
-<span id="cb16-209"><a href="#cb16-209" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.na(ss) || ss == 0) return(c(R2m = NA_real_, R2c = NA_real_))</span></span>
-<span id="cb16-210"><a href="#cb16-210" aria-hidden="true" tabindex="-1"></a><span class="in">    r2m &lt;- var(as.numeric(fitted(m, level = 0)),                na.rm = TRUE) / ss</span></span>
-<span id="cb16-211"><a href="#cb16-211" aria-hidden="true" tabindex="-1"></a><span class="in">    r2c &lt;- var(as.numeric(fitted(m, level = length(m$groups))), na.rm = TRUE) / ss</span></span>
-<span id="cb16-212"><a href="#cb16-212" aria-hidden="true" tabindex="-1"></a><span class="in">    c(R2m = min(max(r2m, 0), 1), R2c = min(max(r2c, 0), 1))</span></span>
+<span id="cb16-201"><a href="#cb16-201" aria-hidden="true" tabindex="-1"></a><span class="in"># ── R² pour nlme::lme — Nakagawa &amp; Schielzeth 2013 via MuMIn ─────────────────</span></span>
+<span id="cb16-202"><a href="#cb16-202" aria-hidden="true" tabindex="-1"></a><span class="in"># MuMIn::r.squaredGLMM returns a matrix [method × (R2m, R2c)].</span></span>
+<span id="cb16-203"><a href="#cb16-203" aria-hidden="true" tabindex="-1"></a><span class="in"># For Gaussian models (lme), the &quot;delta&quot; method is prioritized;</span></span>
+<span id="cb16-204"><a href="#cb16-204" aria-hidden="true" tabindex="-1"></a><span class="in"># if it fails, the first available row is used.</span></span>
+<span id="cb16-205"><a href="#cb16-205" aria-hidden="true" tabindex="-1"></a><span class="in">r2_lme &lt;- function(m) {</span></span>
+<span id="cb16-206"><a href="#cb16-206" aria-hidden="true" tabindex="-1"></a><span class="in">  if (is.null(m)) return(c(R2m = NA_real_, R2c = NA_real_))</span></span>
+<span id="cb16-207"><a href="#cb16-207" aria-hidden="true" tabindex="-1"></a><span class="in">  tryCatch({</span></span>
+<span id="cb16-208"><a href="#cb16-208" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_mat &lt;- MuMIn::r.squaredGLMM(m)       </span></span>
+<span id="cb16-209"><a href="#cb16-209" aria-hidden="true" tabindex="-1"></a><span class="in">    row_nm  &lt;- rownames(r2_mat)</span></span>
+<span id="cb16-210"><a href="#cb16-210" aria-hidden="true" tabindex="-1"></a><span class="in">    idx     &lt;- if (!is.null(row_nm) &amp;&amp; &quot;delta&quot; %in% row_nm) &quot;delta&quot; else 1L</span></span>
+<span id="cb16-211"><a href="#cb16-211" aria-hidden="true" tabindex="-1"></a><span class="in">    c(R2m = as.numeric(r2_mat[idx, &quot;R2m&quot;]),</span></span>
+<span id="cb16-212"><a href="#cb16-212" aria-hidden="true" tabindex="-1"></a><span class="in">      R2c = as.numeric(r2_mat[idx, &quot;R2c&quot;]))</span></span>
 <span id="cb16-213"><a href="#cb16-213" aria-hidden="true" tabindex="-1"></a><span class="in">  }, error = \(e) c(R2m = NA_real_, R2c = NA_real_))</span></span>
 <span id="cb16-214"><a href="#cb16-214" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
 <span id="cb16-215"><a href="#cb16-215" aria-hidden="true" tabindex="-1"></a></span>
@@ -4925,509 +4931,515 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb16-263"><a href="#cb16-263" aria-hidden="true" tabindex="-1"></a><span class="in">                    levels = c(&quot;Spring&quot;, &quot;Summer&quot;, &quot;Autumn&quot;, &quot;Winter&quot;))</span></span>
 <span id="cb16-264"><a href="#cb16-264" aria-hidden="true" tabindex="-1"></a><span class="in">  )</span></span>
 <span id="cb16-265"><a href="#cb16-265" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-266"><a href="#cb16-266" aria-hidden="true" tabindex="-1"></a><span class="in"># Step 1: null model (intercept only + random effects)</span></span>
-<span id="cb16-267"><a href="#cb16-267" aria-hidden="true" tabindex="-1"></a><span class="in">m_null &lt;- suppressWarnings(</span></span>
-<span id="cb16-268"><a href="#cb16-268" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(</span></span>
-<span id="cb16-269"><a href="#cb16-269" aria-hidden="true" tabindex="-1"></a><span class="in">    y_trans ~ 1,</span></span>
-<span id="cb16-270"><a href="#cb16-270" aria-hidden="true" tabindex="-1"></a><span class="in">    data        = h1_model_data,</span></span>
-<span id="cb16-271"><a href="#cb16-271" aria-hidden="true" tabindex="-1"></a><span class="in">    random      = ~ 1 | orientation / depth,</span></span>
-<span id="cb16-272"><a href="#cb16-272" aria-hidden="true" tabindex="-1"></a><span class="in">    correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
-<span id="cb16-273"><a href="#cb16-273" aria-hidden="true" tabindex="-1"></a><span class="in">    control     = lme_ctrl</span></span>
-<span id="cb16-274"><a href="#cb16-274" aria-hidden="true" tabindex="-1"></a><span class="in">  )</span></span>
-<span id="cb16-275"><a href="#cb16-275" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
-<span id="cb16-276"><a href="#cb16-276" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-277"><a href="#cb16-277" aria-hidden="true" tabindex="-1"></a><span class="in">h1_resid &lt;- residuals(m_null, type = &quot;response&quot;)</span></span>
-<span id="cb16-278"><a href="#cb16-278" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-279"><a href="#cb16-279" aria-hidden="true" tabindex="-1"></a><span class="in"># Step 2: OLS on residuals</span></span>
-<span id="cb16-280"><a href="#cb16-280" aria-hidden="true" tabindex="-1"></a><span class="in">m_h1_step2 &lt;- lm(h1_resid ~ h1_model_data$land_use)</span></span>
-<span id="cb16-281"><a href="#cb16-281" aria-hidden="true" tabindex="-1"></a><span class="in">step2_summ  &lt;- summary(m_h1_step2)</span></span>
-<span id="cb16-282"><a href="#cb16-282" aria-hidden="true" tabindex="-1"></a><span class="in">beta_lu     &lt;- coef(m_h1_step2)[&quot;h1_model_data$land_use&quot;]</span></span>
-<span id="cb16-283"><a href="#cb16-283" aria-hidden="true" tabindex="-1"></a><span class="in">se_lu       &lt;- step2_summ$coefficients[&quot;h1_model_data$land_use&quot;, &quot;Std. Error&quot;]</span></span>
-<span id="cb16-284"><a href="#cb16-284" aria-hidden="true" tabindex="-1"></a><span class="in">t_lu        &lt;- step2_summ$coefficients[&quot;h1_model_data$land_use&quot;, &quot;t value&quot;]</span></span>
-<span id="cb16-285"><a href="#cb16-285" aria-hidden="true" tabindex="-1"></a><span class="in">p_lu        &lt;- step2_summ$coefficients[&quot;h1_model_data$land_use&quot;, &quot;Pr(&gt;|t|)&quot;]</span></span>
-<span id="cb16-286"><a href="#cb16-286" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-287"><a href="#cb16-287" aria-hidden="true" tabindex="-1"></a><span class="in">sigma_pooled &lt;- sd(h1_resid, na.rm = TRUE)</span></span>
-<span id="cb16-288"><a href="#cb16-288" aria-hidden="true" tabindex="-1"></a><span class="in">hedges_g     &lt;- beta_lu / sigma_pooled</span></span>
-<span id="cb16-289"><a href="#cb16-289" aria-hidden="true" tabindex="-1"></a><span class="in">r2_null      &lt;- r2_lme(m_null)</span></span>
+<span id="cb16-266"><a href="#cb16-266" aria-hidden="true" tabindex="-1"></a><span class="in"># Single model: fauna ~ land_use + random(orientation/depth) + AR(1)</span></span>
+<span id="cb16-267"><a href="#cb16-267" aria-hidden="true" tabindex="-1"></a><span class="in"># This is the H1 model proper. The adjusted values below strip only the</span></span>
+<span id="cb16-268"><a href="#cb16-268" aria-hidden="true" tabindex="-1"></a><span class="in"># random effects, preserving the intercept and land_use fixed prediction,</span></span>
+<span id="cb16-269"><a href="#cb16-269" aria-hidden="true" tabindex="-1"></a><span class="in"># so the Y axis is fauna on the transformed scale — not residuals.</span></span>
+<span id="cb16-270"><a href="#cb16-270" aria-hidden="true" tabindex="-1"></a><span class="in">m_h1 &lt;- suppressWarnings(</span></span>
+<span id="cb16-271"><a href="#cb16-271" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(</span></span>
+<span id="cb16-272"><a href="#cb16-272" aria-hidden="true" tabindex="-1"></a><span class="in">    y_trans ~ land_use,</span></span>
+<span id="cb16-273"><a href="#cb16-273" aria-hidden="true" tabindex="-1"></a><span class="in">    data        = h1_model_data,</span></span>
+<span id="cb16-274"><a href="#cb16-274" aria-hidden="true" tabindex="-1"></a><span class="in">    random      = ~ 1 | orientation / depth,</span></span>
+<span id="cb16-275"><a href="#cb16-275" aria-hidden="true" tabindex="-1"></a><span class="in">    correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
+<span id="cb16-276"><a href="#cb16-276" aria-hidden="true" tabindex="-1"></a><span class="in">    control     = lme_ctrl</span></span>
+<span id="cb16-277"><a href="#cb16-277" aria-hidden="true" tabindex="-1"></a><span class="in">  )</span></span>
+<span id="cb16-278"><a href="#cb16-278" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
+<span id="cb16-279"><a href="#cb16-279" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-280"><a href="#cb16-280" aria-hidden="true" tabindex="-1"></a><span class="in"># adjusted = fitted (fixed effects only, level = 0) + marginal residuals</span></span>
+<span id="cb16-281"><a href="#cb16-281" aria-hidden="true" tabindex="-1"></a><span class="in"># = observed - random effects        ← real fauna scale, spatial confound removed</span></span>
+<span id="cb16-282"><a href="#cb16-282" aria-hidden="true" tabindex="-1"></a><span class="in">h1_adj_values &lt;- fitted(m_h1, level = 0) + residuals(m_h1, type = &quot;response&quot;)</span></span>
+<span id="cb16-283"><a href="#cb16-283" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-284"><a href="#cb16-284" aria-hidden="true" tabindex="-1"></a><span class="in"># Extract H1 fixed-effect estimates directly from the single model</span></span>
+<span id="cb16-285"><a href="#cb16-285" aria-hidden="true" tabindex="-1"></a><span class="in">h1_tbl      &lt;- summary(m_h1)$tTable</span></span>
+<span id="cb16-286"><a href="#cb16-286" aria-hidden="true" tabindex="-1"></a><span class="in">beta_lu     &lt;- h1_tbl[&quot;land_use&quot;, &quot;Value&quot;]</span></span>
+<span id="cb16-287"><a href="#cb16-287" aria-hidden="true" tabindex="-1"></a><span class="in">se_lu       &lt;- h1_tbl[&quot;land_use&quot;, &quot;Std.Error&quot;]</span></span>
+<span id="cb16-288"><a href="#cb16-288" aria-hidden="true" tabindex="-1"></a><span class="in">t_lu        &lt;- h1_tbl[&quot;land_use&quot;, &quot;t-value&quot;]</span></span>
+<span id="cb16-289"><a href="#cb16-289" aria-hidden="true" tabindex="-1"></a><span class="in">p_lu        &lt;- h1_tbl[&quot;land_use&quot;, &quot;p-value&quot;]</span></span>
 <span id="cb16-290"><a href="#cb16-290" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-291"><a href="#cb16-291" aria-hidden="true" tabindex="-1"></a><span class="in">h1_adj &lt;- h1_model_data %&gt;%</span></span>
-<span id="cb16-292"><a href="#cb16-292" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(adj_value = as.numeric(h1_resid), transformation = TRANSFO_FAUNA)</span></span>
-<span id="cb16-293"><a href="#cb16-293" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(h1_adj, &quot;../output/H1_adjusted_values.csv&quot;, row.names = FALSE)</span></span>
+<span id="cb16-291"><a href="#cb16-291" aria-hidden="true" tabindex="-1"></a><span class="in">sigma_pooled &lt;- sd(h1_adj_values, na.rm = TRUE)</span></span>
+<span id="cb16-292"><a href="#cb16-292" aria-hidden="true" tabindex="-1"></a><span class="in">hedges_g     &lt;- beta_lu / sigma_pooled</span></span>
+<span id="cb16-293"><a href="#cb16-293" aria-hidden="true" tabindex="-1"></a><span class="in">r2_h1        &lt;- r2_lme(m_h1)</span></span>
 <span id="cb16-294"><a href="#cb16-294" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-295"><a href="#cb16-295" aria-hidden="true" tabindex="-1"></a><span class="in">h1_summary &lt;- tibble(</span></span>
-<span id="cb16-296"><a href="#cb16-296" aria-hidden="true" tabindex="-1"></a><span class="in">  beta_land_use       = beta_lu,</span></span>
-<span id="cb16-297"><a href="#cb16-297" aria-hidden="true" tabindex="-1"></a><span class="in">  se_land_use         = se_lu,</span></span>
-<span id="cb16-298"><a href="#cb16-298" aria-hidden="true" tabindex="-1"></a><span class="in">  t_value             = t_lu,</span></span>
-<span id="cb16-299"><a href="#cb16-299" aria-hidden="true" tabindex="-1"></a><span class="in">  p_value             = p_lu,</span></span>
-<span id="cb16-300"><a href="#cb16-300" aria-hidden="true" tabindex="-1"></a><span class="in">  hedges_g            = hedges_g,</span></span>
-<span id="cb16-301"><a href="#cb16-301" aria-hidden="true" tabindex="-1"></a><span class="in">  r2_null_marginal    = as.numeric(r2_null[&quot;R2m&quot;]),</span></span>
-<span id="cb16-302"><a href="#cb16-302" aria-hidden="true" tabindex="-1"></a><span class="in">  r2_null_conditional = as.numeric(r2_null[&quot;R2c&quot;]),</span></span>
-<span id="cb16-303"><a href="#cb16-303" aria-hidden="true" tabindex="-1"></a><span class="in">  r2_step2            = step2_summ$r.squared,</span></span>
-<span id="cb16-304"><a href="#cb16-304" aria-hidden="true" tabindex="-1"></a><span class="in">  n_obs               = nrow(h1_model_data),</span></span>
-<span id="cb16-305"><a href="#cb16-305" aria-hidden="true" tabindex="-1"></a><span class="in">  transformation      = TRANSFO_FAUNA</span></span>
-<span id="cb16-306"><a href="#cb16-306" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
-<span id="cb16-307"><a href="#cb16-307" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(h1_summary, &quot;../output/H1_model_summary.csv&quot;, row.names = FALSE)</span></span>
-<span id="cb16-308"><a href="#cb16-308" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-309"><a href="#cb16-309" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(</span></span>
-<span id="cb16-310"><a href="#cb16-310" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;H1 | β = %.3f | g = %.2f | p %s | R²(lu) = %.3f | R²c(null) = %.3f&quot;,</span></span>
-<span id="cb16-311"><a href="#cb16-311" aria-hidden="true" tabindex="-1"></a><span class="in">  beta_lu, hedges_g,</span></span>
-<span id="cb16-312"><a href="#cb16-312" aria-hidden="true" tabindex="-1"></a><span class="in">  if (p_lu &lt; 0.001) &quot;&lt; 0.001&quot; else sprintf(&quot;= %.3f&quot;, p_lu),</span></span>
-<span id="cb16-313"><a href="#cb16-313" aria-hidden="true" tabindex="-1"></a><span class="in">  step2_summ$r.squared, as.numeric(r2_null[&quot;R2c&quot;])</span></span>
-<span id="cb16-314"><a href="#cb16-314" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-315"><a href="#cb16-315" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb16-316"><a href="#cb16-316" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-317"><a href="#cb16-317" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb16-318"><a href="#cb16-318" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-319"><a href="#cb16-319" aria-hidden="true" tabindex="-1"></a><span class="fu"># Full-dataset piecewise SEM</span></span>
-<span id="cb16-320"><a href="#cb16-320" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-321"><a href="#cb16-321" aria-hidden="true" tabindex="-1"></a><span class="in">```{r h2a-full-psem}</span></span>
-<span id="cb16-322"><a href="#cb16-322" aria-hidden="true" tabindex="-1"></a><span class="in">library(piecewiseSEM)</span></span>
-<span id="cb16-323"><a href="#cb16-323" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-324"><a href="#cb16-324" aria-hidden="true" tabindex="-1"></a><span class="in"># Z-scored globally (full time-series SEM, not rolling window)</span></span>
-<span id="cb16-325"><a href="#cb16-325" aria-hidden="true" tabindex="-1"></a><span class="in">full_data &lt;- data_transformed %&gt;%</span></span>
-<span id="cb16-326"><a href="#cb16-326" aria-hidden="true" tabindex="-1"></a><span class="in">  select(date, land_use, orientation, depth, all_taxa,</span></span>
-<span id="cb16-327"><a href="#cb16-327" aria-hidden="true" tabindex="-1"></a><span class="in">         root, all_of(microclimate_index)) %&gt;%</span></span>
-<span id="cb16-328"><a href="#cb16-328" aria-hidden="true" tabindex="-1"></a><span class="in">  rename(microclimate_1 = microclimate_index[1],</span></span>
-<span id="cb16-329"><a href="#cb16-329" aria-hidden="true" tabindex="-1"></a><span class="in">         microclimate_2 = microclimate_index[2],</span></span>
-<span id="cb16-330"><a href="#cb16-330" aria-hidden="true" tabindex="-1"></a><span class="in">         fauna          = all_taxa) %&gt;%</span></span>
-<span id="cb16-331"><a href="#cb16-331" aria-hidden="true" tabindex="-1"></a><span class="in">  drop_na() %&gt;%</span></span>
-<span id="cb16-332"><a href="#cb16-332" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(across(c(fauna, root, microclimate_1, microclimate_2),</span></span>
-<span id="cb16-333"><a href="#cb16-333" aria-hidden="true" tabindex="-1"></a><span class="in">                ~ as.numeric(scale(.))))</span></span>
-<span id="cb16-334"><a href="#cb16-334" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-335"><a href="#cb16-335" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Fit four LMEs with literal random formulas ────────────────────────────────</span></span>
-<span id="cb16-336"><a href="#cb16-336" aria-hidden="true" tabindex="-1"></a><span class="in">lme_mc1 &lt;- suppressWarnings(tryCatch(</span></span>
-<span id="cb16-337"><a href="#cb16-337" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(microclimate_1 ~ land_use,</span></span>
-<span id="cb16-338"><a href="#cb16-338" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | depth,</span></span>
-<span id="cb16-339"><a href="#cb16-339" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
-<span id="cb16-340"><a href="#cb16-340" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) NULL</span></span>
-<span id="cb16-341"><a href="#cb16-341" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-342"><a href="#cb16-342" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-343"><a href="#cb16-343" aria-hidden="true" tabindex="-1"></a><span class="in">lme_mc2 &lt;- suppressWarnings(tryCatch(</span></span>
-<span id="cb16-344"><a href="#cb16-344" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(microclimate_2 ~ land_use,</span></span>
-<span id="cb16-345"><a href="#cb16-345" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | depth,</span></span>
-<span id="cb16-346"><a href="#cb16-346" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
-<span id="cb16-347"><a href="#cb16-347" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) NULL</span></span>
-<span id="cb16-348"><a href="#cb16-348" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-349"><a href="#cb16-349" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-350"><a href="#cb16-350" aria-hidden="true" tabindex="-1"></a><span class="in">lme_root &lt;- suppressWarnings(tryCatch(</span></span>
-<span id="cb16-351"><a href="#cb16-351" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use,</span></span>
-<span id="cb16-352"><a href="#cb16-352" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | orientation / depth,</span></span>
-<span id="cb16-353"><a href="#cb16-353" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
-<span id="cb16-354"><a href="#cb16-354" aria-hidden="true" tabindex="-1"></a><span class="in">            control = lme_ctrl),</span></span>
-<span id="cb16-355"><a href="#cb16-355" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) suppressWarnings(tryCatch(</span></span>
-<span id="cb16-356"><a href="#cb16-356" aria-hidden="true" tabindex="-1"></a><span class="in">    nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use,</span></span>
-<span id="cb16-357"><a href="#cb16-357" aria-hidden="true" tabindex="-1"></a><span class="in">              data = full_data, random = ~ 1 | depth,</span></span>
-<span id="cb16-358"><a href="#cb16-358" aria-hidden="true" tabindex="-1"></a><span class="in">              correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
-<span id="cb16-359"><a href="#cb16-359" aria-hidden="true" tabindex="-1"></a><span class="in">    error = \(e2) NULL</span></span>
-<span id="cb16-360"><a href="#cb16-360" aria-hidden="true" tabindex="-1"></a><span class="in">  ))</span></span>
-<span id="cb16-361"><a href="#cb16-361" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-362"><a href="#cb16-362" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-363"><a href="#cb16-363" aria-hidden="true" tabindex="-1"></a><span class="in">lme_fauna &lt;- suppressWarnings(tryCatch(</span></span>
-<span id="cb16-364"><a href="#cb16-364" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
-<span id="cb16-365"><a href="#cb16-365" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | orientation / depth,</span></span>
-<span id="cb16-366"><a href="#cb16-366" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
-<span id="cb16-367"><a href="#cb16-367" aria-hidden="true" tabindex="-1"></a><span class="in">            control = lme_ctrl),</span></span>
-<span id="cb16-368"><a href="#cb16-368" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) suppressWarnings(tryCatch(</span></span>
-<span id="cb16-369"><a href="#cb16-369" aria-hidden="true" tabindex="-1"></a><span class="in">    nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
-<span id="cb16-370"><a href="#cb16-370" aria-hidden="true" tabindex="-1"></a><span class="in">              data = full_data, random = ~ 1 | depth,</span></span>
-<span id="cb16-371"><a href="#cb16-371" aria-hidden="true" tabindex="-1"></a><span class="in">              correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
-<span id="cb16-372"><a href="#cb16-372" aria-hidden="true" tabindex="-1"></a><span class="in">    error = \(e2) NULL</span></span>
-<span id="cb16-373"><a href="#cb16-373" aria-hidden="true" tabindex="-1"></a><span class="in">  ))</span></span>
-<span id="cb16-374"><a href="#cb16-374" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-375"><a href="#cb16-375" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-376"><a href="#cb16-376" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Assemble and summarise psem ───────────────────────────────────────────────</span></span>
-<span id="cb16-377"><a href="#cb16-377" aria-hidden="true" tabindex="-1"></a><span class="in">full_psem   &lt;- suppressWarnings(</span></span>
-<span id="cb16-378"><a href="#cb16-378" aria-hidden="true" tabindex="-1"></a><span class="in">  psem(lme_mc1, lme_mc2, lme_root, lme_fauna,</span></span>
-<span id="cb16-379"><a href="#cb16-379" aria-hidden="true" tabindex="-1"></a><span class="in">       microclimate_1 %~~% microclimate_2, data = full_data)</span></span>
-<span id="cb16-380"><a href="#cb16-380" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
-<span id="cb16-381"><a href="#cb16-381" aria-hidden="true" tabindex="-1"></a><span class="in">sem_summary &lt;- summary(full_psem)</span></span>
-<span id="cb16-382"><a href="#cb16-382" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-383"><a href="#cb16-383" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Model fit ─────────────────────────────────────────────────────────────────</span></span>
-<span id="cb16-384"><a href="#cb16-384" aria-hidden="true" tabindex="-1"></a><span class="in">dag_fit &lt;- tibble(</span></span>
-<span id="cb16-385"><a href="#cb16-385" aria-hidden="true" tabindex="-1"></a><span class="in">  fishers_C = sem_summary$Cstat$Fisher.C,</span></span>
-<span id="cb16-386"><a href="#cb16-386" aria-hidden="true" tabindex="-1"></a><span class="in">  df        = sem_summary$Cstat$df,</span></span>
-<span id="cb16-387"><a href="#cb16-387" aria-hidden="true" tabindex="-1"></a><span class="in">  p_value   = sem_summary$Cstat$P.Value,</span></span>
-<span id="cb16-388"><a href="#cb16-388" aria-hidden="true" tabindex="-1"></a><span class="in">  AIC       = sem_summary$AIC$AIC,</span></span>
-<span id="cb16-389"><a href="#cb16-389" aria-hidden="true" tabindex="-1"></a><span class="in">  AICc      = sem_summary$AIC$AICc</span></span>
-<span id="cb16-390"><a href="#cb16-390" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
-<span id="cb16-391"><a href="#cb16-391" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(dag_fit, &quot;../output/DAG_model_fit.csv&quot;, row.names = FALSE)</span></span>
-<span id="cb16-392"><a href="#cb16-392" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-393"><a href="#cb16-393" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Path coefficients ─────────────────────────────────────────────────────────</span></span>
-<span id="cb16-394"><a href="#cb16-394" aria-hidden="true" tabindex="-1"></a><span class="in">r2_cols     &lt;- names(sem_summary$R2)</span></span>
-<span id="cb16-395"><a href="#cb16-395" aria-hidden="true" tabindex="-1"></a><span class="in">r2_marg_col &lt;- r2_cols[grep(&quot;Marginal|R.squared$&quot;,   r2_cols)[1]]</span></span>
-<span id="cb16-396"><a href="#cb16-396" aria-hidden="true" tabindex="-1"></a><span class="in">r2_cond_col &lt;- r2_cols[grep(&quot;Conditional|R.squared.1&quot;, r2_cols)[1]]</span></span>
-<span id="cb16-397"><a href="#cb16-397" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-398"><a href="#cb16-398" aria-hidden="true" tabindex="-1"></a><span class="in">dag_table &lt;- as.data.frame(sem_summary$coefficients) %&gt;%</span></span>
-<span id="cb16-399"><a href="#cb16-399" aria-hidden="true" tabindex="-1"></a><span class="in">  setNames(make.names(names(.), unique = TRUE)) %&gt;%</span></span>
-<span id="cb16-400"><a href="#cb16-400" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!is.na(Response), Response != &quot;&quot;, Response != &quot;~~&quot;) %&gt;%</span></span>
-<span id="cb16-401"><a href="#cb16-401" aria-hidden="true" tabindex="-1"></a><span class="in">  transmute(</span></span>
-<span id="cb16-402"><a href="#cb16-402" aria-hidden="true" tabindex="-1"></a><span class="in">    equation     = paste0(Response, &quot; ~ &quot;, Predictor),</span></span>
-<span id="cb16-403"><a href="#cb16-403" aria-hidden="true" tabindex="-1"></a><span class="in">    response     = Response,</span></span>
-<span id="cb16-404"><a href="#cb16-404" aria-hidden="true" tabindex="-1"></a><span class="in">    predictor    = Predictor,</span></span>
-<span id="cb16-405"><a href="#cb16-405" aria-hidden="true" tabindex="-1"></a><span class="in">    estimate     = Estimate,</span></span>
-<span id="cb16-406"><a href="#cb16-406" aria-hidden="true" tabindex="-1"></a><span class="in">    std_estimate = Std.Estimate,</span></span>
-<span id="cb16-407"><a href="#cb16-407" aria-hidden="true" tabindex="-1"></a><span class="in">    se           = Std.Error,</span></span>
-<span id="cb16-408"><a href="#cb16-408" aria-hidden="true" tabindex="-1"></a><span class="in">    t_value      = if (&quot;Crit.Value&quot; %in% names(.)) Crit.Value else NA_real_,</span></span>
-<span id="cb16-409"><a href="#cb16-409" aria-hidden="true" tabindex="-1"></a><span class="in">    p_value      = suppressWarnings(as.numeric(P.Value)),</span></span>
-<span id="cb16-410"><a href="#cb16-410" aria-hidden="true" tabindex="-1"></a><span class="in">    sig          = case_when(</span></span>
-<span id="cb16-411"><a href="#cb16-411" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value &lt; 0.001 ~ &quot;***&quot;, p_value &lt; 0.01 ~ &quot;**&quot;,</span></span>
-<span id="cb16-412"><a href="#cb16-412" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value &lt; 0.05  ~ &quot;*&quot;,   p_value &lt; 0.10 ~ &quot;.&quot;, TRUE ~ &quot;&quot;)</span></span>
-<span id="cb16-413"><a href="#cb16-413" aria-hidden="true" tabindex="-1"></a><span class="in">  ) %&gt;%</span></span>
-<span id="cb16-414"><a href="#cb16-414" aria-hidden="true" tabindex="-1"></a><span class="in">  left_join(</span></span>
-<span id="cb16-415"><a href="#cb16-415" aria-hidden="true" tabindex="-1"></a><span class="in">    as.data.frame(sem_summary$R2) %&gt;%</span></span>
-<span id="cb16-416"><a href="#cb16-416" aria-hidden="true" tabindex="-1"></a><span class="in">      transmute(response       = Response,</span></span>
-<span id="cb16-417"><a href="#cb16-417" aria-hidden="true" tabindex="-1"></a><span class="in">                r2_marginal    = .[[r2_marg_col]],</span></span>
-<span id="cb16-418"><a href="#cb16-418" aria-hidden="true" tabindex="-1"></a><span class="in">                r2_conditional = .[[r2_cond_col]]),</span></span>
-<span id="cb16-419"><a href="#cb16-419" aria-hidden="true" tabindex="-1"></a><span class="in">    by = &quot;response&quot;</span></span>
-<span id="cb16-420"><a href="#cb16-420" aria-hidden="true" tabindex="-1"></a><span class="in">  )</span></span>
-<span id="cb16-421"><a href="#cb16-421" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-422"><a href="#cb16-422" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(dag_table, &quot;../output/DAG_coefficients.csv&quot;, row.names = FALSE)</span></span>
-<span id="cb16-423"><a href="#cb16-423" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-424"><a href="#cb16-424" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(</span></span>
-<span id="cb16-425"><a href="#cb16-425" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;Full psem — Fisher&#39;s C = %.2f (df = %d, p = %.3f) | AIC = %.1f&quot;,</span></span>
-<span id="cb16-426"><a href="#cb16-426" aria-hidden="true" tabindex="-1"></a><span class="in">  dag_fit$fishers_C, dag_fit$df, dag_fit$p_value, dag_fit$AIC</span></span>
-<span id="cb16-427"><a href="#cb16-427" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-428"><a href="#cb16-428" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-295"><a href="#cb16-295" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-296"><a href="#cb16-296" aria-hidden="true" tabindex="-1"></a><span class="in">h1_adj &lt;- h1_model_data %&gt;%</span></span>
+<span id="cb16-297"><a href="#cb16-297" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(adj_value = as.numeric(h1_adj_values), transformation = TRANSFO_FAUNA)</span></span>
+<span id="cb16-298"><a href="#cb16-298" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(h1_adj, &quot;../output/H1_adjusted_values.csv&quot;, row.names = FALSE)</span></span>
+<span id="cb16-299"><a href="#cb16-299" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-300"><a href="#cb16-300" aria-hidden="true" tabindex="-1"></a><span class="in">h1_summary &lt;- tibble(</span></span>
+<span id="cb16-301"><a href="#cb16-301" aria-hidden="true" tabindex="-1"></a><span class="in">  beta_land_use       = beta_lu,</span></span>
+<span id="cb16-302"><a href="#cb16-302" aria-hidden="true" tabindex="-1"></a><span class="in">  se_land_use         = se_lu,</span></span>
+<span id="cb16-303"><a href="#cb16-303" aria-hidden="true" tabindex="-1"></a><span class="in">  t_value             = t_lu,</span></span>
+<span id="cb16-304"><a href="#cb16-304" aria-hidden="true" tabindex="-1"></a><span class="in">  p_value             = p_lu,</span></span>
+<span id="cb16-305"><a href="#cb16-305" aria-hidden="true" tabindex="-1"></a><span class="in">  hedges_g            = hedges_g,</span></span>
+<span id="cb16-306"><a href="#cb16-306" aria-hidden="true" tabindex="-1"></a><span class="in">  r2_marginal         = as.numeric(r2_h1[&quot;R2m&quot;]),   # land_use fixed effect</span></span>
+<span id="cb16-307"><a href="#cb16-307" aria-hidden="true" tabindex="-1"></a><span class="in">  r2_conditional      = as.numeric(r2_h1[&quot;R2c&quot;]),   # fixed + random</span></span>
+<span id="cb16-308"><a href="#cb16-308" aria-hidden="true" tabindex="-1"></a><span class="in">  n_obs               = nrow(h1_model_data),</span></span>
+<span id="cb16-309"><a href="#cb16-309" aria-hidden="true" tabindex="-1"></a><span class="in">  transformation      = TRANSFO_FAUNA</span></span>
+<span id="cb16-310"><a href="#cb16-310" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
+<span id="cb16-311"><a href="#cb16-311" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(h1_summary, &quot;../output/H1_model_summary.csv&quot;, row.names = FALSE)</span></span>
+<span id="cb16-312"><a href="#cb16-312" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-313"><a href="#cb16-313" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(</span></span>
+<span id="cb16-314"><a href="#cb16-314" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;H1 | β = %.3f | g = %.2f | p %s | R²m = %.3f | R²c = %.3f&quot;,</span></span>
+<span id="cb16-315"><a href="#cb16-315" aria-hidden="true" tabindex="-1"></a><span class="in">  beta_lu, </span></span>
+<span id="cb16-316"><a href="#cb16-316" aria-hidden="true" tabindex="-1"></a><span class="in">  hedges_g,</span></span>
+<span id="cb16-317"><a href="#cb16-317" aria-hidden="true" tabindex="-1"></a><span class="in">  if (p_lu &lt; 0.001) &quot;&lt; 0.001&quot; else sprintf(&quot;= %.3f&quot;, p_lu),</span></span>
+<span id="cb16-318"><a href="#cb16-318" aria-hidden="true" tabindex="-1"></a><span class="in">  h1_summary$r2_marginal, </span></span>
+<span id="cb16-319"><a href="#cb16-319" aria-hidden="true" tabindex="-1"></a><span class="in">  h1_summary$r2_conditional</span></span>
+<span id="cb16-320"><a href="#cb16-320" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-321"><a href="#cb16-321" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-322"><a href="#cb16-322" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-323"><a href="#cb16-323" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb16-324"><a href="#cb16-324" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-325"><a href="#cb16-325" aria-hidden="true" tabindex="-1"></a><span class="fu"># Full-dataset piecewise SEM</span></span>
+<span id="cb16-326"><a href="#cb16-326" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-327"><a href="#cb16-327" aria-hidden="true" tabindex="-1"></a><span class="in">```{r h2a-full-psem}</span></span>
+<span id="cb16-328"><a href="#cb16-328" aria-hidden="true" tabindex="-1"></a><span class="in">library(piecewiseSEM)</span></span>
+<span id="cb16-329"><a href="#cb16-329" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-330"><a href="#cb16-330" aria-hidden="true" tabindex="-1"></a><span class="in"># Z-scored globally (full time-series SEM, not rolling window)</span></span>
+<span id="cb16-331"><a href="#cb16-331" aria-hidden="true" tabindex="-1"></a><span class="in">full_data &lt;- data_transformed %&gt;%</span></span>
+<span id="cb16-332"><a href="#cb16-332" aria-hidden="true" tabindex="-1"></a><span class="in">  select(date, land_use, orientation, depth, all_taxa,</span></span>
+<span id="cb16-333"><a href="#cb16-333" aria-hidden="true" tabindex="-1"></a><span class="in">         root, all_of(microclimate_index)) %&gt;%</span></span>
+<span id="cb16-334"><a href="#cb16-334" aria-hidden="true" tabindex="-1"></a><span class="in">  rename(microclimate_1 = microclimate_index[1],</span></span>
+<span id="cb16-335"><a href="#cb16-335" aria-hidden="true" tabindex="-1"></a><span class="in">         microclimate_2 = microclimate_index[2],</span></span>
+<span id="cb16-336"><a href="#cb16-336" aria-hidden="true" tabindex="-1"></a><span class="in">         fauna          = all_taxa) %&gt;%</span></span>
+<span id="cb16-337"><a href="#cb16-337" aria-hidden="true" tabindex="-1"></a><span class="in">  drop_na() %&gt;%</span></span>
+<span id="cb16-338"><a href="#cb16-338" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(across(c(fauna, root, microclimate_1, microclimate_2),</span></span>
+<span id="cb16-339"><a href="#cb16-339" aria-hidden="true" tabindex="-1"></a><span class="in">                ~ as.numeric(scale(.))))</span></span>
+<span id="cb16-340"><a href="#cb16-340" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-341"><a href="#cb16-341" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Fit four LMEs with literal random formulas ────────────────────────────────</span></span>
+<span id="cb16-342"><a href="#cb16-342" aria-hidden="true" tabindex="-1"></a><span class="in">lme_mc1 &lt;- suppressWarnings(tryCatch(</span></span>
+<span id="cb16-343"><a href="#cb16-343" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(microclimate_1 ~ land_use,</span></span>
+<span id="cb16-344"><a href="#cb16-344" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | depth,</span></span>
+<span id="cb16-345"><a href="#cb16-345" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
+<span id="cb16-346"><a href="#cb16-346" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) NULL</span></span>
+<span id="cb16-347"><a href="#cb16-347" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-348"><a href="#cb16-348" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-349"><a href="#cb16-349" aria-hidden="true" tabindex="-1"></a><span class="in">lme_mc2 &lt;- suppressWarnings(tryCatch(</span></span>
+<span id="cb16-350"><a href="#cb16-350" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(microclimate_2 ~ land_use,</span></span>
+<span id="cb16-351"><a href="#cb16-351" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | depth,</span></span>
+<span id="cb16-352"><a href="#cb16-352" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
+<span id="cb16-353"><a href="#cb16-353" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) NULL</span></span>
+<span id="cb16-354"><a href="#cb16-354" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-355"><a href="#cb16-355" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-356"><a href="#cb16-356" aria-hidden="true" tabindex="-1"></a><span class="in">lme_root &lt;- suppressWarnings(tryCatch(</span></span>
+<span id="cb16-357"><a href="#cb16-357" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use,</span></span>
+<span id="cb16-358"><a href="#cb16-358" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | orientation / depth,</span></span>
+<span id="cb16-359"><a href="#cb16-359" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
+<span id="cb16-360"><a href="#cb16-360" aria-hidden="true" tabindex="-1"></a><span class="in">            control = lme_ctrl),</span></span>
+<span id="cb16-361"><a href="#cb16-361" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) suppressWarnings(tryCatch(</span></span>
+<span id="cb16-362"><a href="#cb16-362" aria-hidden="true" tabindex="-1"></a><span class="in">    nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use,</span></span>
+<span id="cb16-363"><a href="#cb16-363" aria-hidden="true" tabindex="-1"></a><span class="in">              data = full_data, random = ~ 1 | depth,</span></span>
+<span id="cb16-364"><a href="#cb16-364" aria-hidden="true" tabindex="-1"></a><span class="in">              correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
+<span id="cb16-365"><a href="#cb16-365" aria-hidden="true" tabindex="-1"></a><span class="in">    error = \(e2) NULL</span></span>
+<span id="cb16-366"><a href="#cb16-366" aria-hidden="true" tabindex="-1"></a><span class="in">  ))</span></span>
+<span id="cb16-367"><a href="#cb16-367" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-368"><a href="#cb16-368" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-369"><a href="#cb16-369" aria-hidden="true" tabindex="-1"></a><span class="in">lme_fauna &lt;- suppressWarnings(tryCatch(</span></span>
+<span id="cb16-370"><a href="#cb16-370" aria-hidden="true" tabindex="-1"></a><span class="in">  nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
+<span id="cb16-371"><a href="#cb16-371" aria-hidden="true" tabindex="-1"></a><span class="in">            data = full_data, random = ~ 1 | orientation / depth,</span></span>
+<span id="cb16-372"><a href="#cb16-372" aria-hidden="true" tabindex="-1"></a><span class="in">            correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
+<span id="cb16-373"><a href="#cb16-373" aria-hidden="true" tabindex="-1"></a><span class="in">            control = lme_ctrl),</span></span>
+<span id="cb16-374"><a href="#cb16-374" aria-hidden="true" tabindex="-1"></a><span class="in">  error = \(e) suppressWarnings(tryCatch(</span></span>
+<span id="cb16-375"><a href="#cb16-375" aria-hidden="true" tabindex="-1"></a><span class="in">    nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
+<span id="cb16-376"><a href="#cb16-376" aria-hidden="true" tabindex="-1"></a><span class="in">              data = full_data, random = ~ 1 | depth,</span></span>
+<span id="cb16-377"><a href="#cb16-377" aria-hidden="true" tabindex="-1"></a><span class="in">              correlation = nlme::corAR1(form = ~ 1 | depth), control = lme_ctrl),</span></span>
+<span id="cb16-378"><a href="#cb16-378" aria-hidden="true" tabindex="-1"></a><span class="in">    error = \(e2) NULL</span></span>
+<span id="cb16-379"><a href="#cb16-379" aria-hidden="true" tabindex="-1"></a><span class="in">  ))</span></span>
+<span id="cb16-380"><a href="#cb16-380" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-381"><a href="#cb16-381" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-382"><a href="#cb16-382" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Assemble and summarise psem ───────────────────────────────────────────────</span></span>
+<span id="cb16-383"><a href="#cb16-383" aria-hidden="true" tabindex="-1"></a><span class="in">full_psem   &lt;- suppressWarnings(</span></span>
+<span id="cb16-384"><a href="#cb16-384" aria-hidden="true" tabindex="-1"></a><span class="in">  psem(lme_mc1, lme_mc2, lme_root, lme_fauna,</span></span>
+<span id="cb16-385"><a href="#cb16-385" aria-hidden="true" tabindex="-1"></a><span class="in">       microclimate_1 %~~% microclimate_2, data = full_data)</span></span>
+<span id="cb16-386"><a href="#cb16-386" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
+<span id="cb16-387"><a href="#cb16-387" aria-hidden="true" tabindex="-1"></a><span class="in">sem_summary &lt;- summary(full_psem)</span></span>
+<span id="cb16-388"><a href="#cb16-388" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-389"><a href="#cb16-389" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Model fit ─────────────────────────────────────────────────────────────────</span></span>
+<span id="cb16-390"><a href="#cb16-390" aria-hidden="true" tabindex="-1"></a><span class="in">dag_fit &lt;- tibble(</span></span>
+<span id="cb16-391"><a href="#cb16-391" aria-hidden="true" tabindex="-1"></a><span class="in">  fishers_C = sem_summary$Cstat$Fisher.C,</span></span>
+<span id="cb16-392"><a href="#cb16-392" aria-hidden="true" tabindex="-1"></a><span class="in">  df        = sem_summary$Cstat$df,</span></span>
+<span id="cb16-393"><a href="#cb16-393" aria-hidden="true" tabindex="-1"></a><span class="in">  p_value   = sem_summary$Cstat$P.Value,</span></span>
+<span id="cb16-394"><a href="#cb16-394" aria-hidden="true" tabindex="-1"></a><span class="in">  AIC       = sem_summary$AIC$AIC,</span></span>
+<span id="cb16-395"><a href="#cb16-395" aria-hidden="true" tabindex="-1"></a><span class="in">  AICc      = sem_summary$AIC$AICc</span></span>
+<span id="cb16-396"><a href="#cb16-396" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
+<span id="cb16-397"><a href="#cb16-397" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(dag_fit, &quot;../output/DAG_model_fit.csv&quot;, row.names = FALSE)</span></span>
+<span id="cb16-398"><a href="#cb16-398" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-399"><a href="#cb16-399" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Path coefficients ─────────────────────────────────────────────────────────</span></span>
+<span id="cb16-400"><a href="#cb16-400" aria-hidden="true" tabindex="-1"></a><span class="in">r2_cols     &lt;- names(sem_summary$R2)</span></span>
+<span id="cb16-401"><a href="#cb16-401" aria-hidden="true" tabindex="-1"></a><span class="in">r2_marg_col &lt;- r2_cols[grep(&quot;Marginal|R.squared$&quot;,   r2_cols)[1]]</span></span>
+<span id="cb16-402"><a href="#cb16-402" aria-hidden="true" tabindex="-1"></a><span class="in">r2_cond_col &lt;- r2_cols[grep(&quot;Conditional|R.squared.1&quot;, r2_cols)[1]]</span></span>
+<span id="cb16-403"><a href="#cb16-403" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-404"><a href="#cb16-404" aria-hidden="true" tabindex="-1"></a><span class="in">dag_table &lt;- as.data.frame(sem_summary$coefficients) %&gt;%</span></span>
+<span id="cb16-405"><a href="#cb16-405" aria-hidden="true" tabindex="-1"></a><span class="in">  setNames(make.names(names(.), unique = TRUE)) %&gt;%</span></span>
+<span id="cb16-406"><a href="#cb16-406" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!is.na(Response), Response != &quot;&quot;, Response != &quot;~~&quot;) %&gt;%</span></span>
+<span id="cb16-407"><a href="#cb16-407" aria-hidden="true" tabindex="-1"></a><span class="in">  transmute(</span></span>
+<span id="cb16-408"><a href="#cb16-408" aria-hidden="true" tabindex="-1"></a><span class="in">    equation     = paste0(Response, &quot; ~ &quot;, Predictor),</span></span>
+<span id="cb16-409"><a href="#cb16-409" aria-hidden="true" tabindex="-1"></a><span class="in">    response     = Response,</span></span>
+<span id="cb16-410"><a href="#cb16-410" aria-hidden="true" tabindex="-1"></a><span class="in">    predictor    = Predictor,</span></span>
+<span id="cb16-411"><a href="#cb16-411" aria-hidden="true" tabindex="-1"></a><span class="in">    estimate     = Estimate,</span></span>
+<span id="cb16-412"><a href="#cb16-412" aria-hidden="true" tabindex="-1"></a><span class="in">    std_estimate = Std.Estimate,</span></span>
+<span id="cb16-413"><a href="#cb16-413" aria-hidden="true" tabindex="-1"></a><span class="in">    se           = Std.Error,</span></span>
+<span id="cb16-414"><a href="#cb16-414" aria-hidden="true" tabindex="-1"></a><span class="in">    t_value      = if (&quot;Crit.Value&quot; %in% names(.)) Crit.Value else NA_real_,</span></span>
+<span id="cb16-415"><a href="#cb16-415" aria-hidden="true" tabindex="-1"></a><span class="in">    p_value      = suppressWarnings(as.numeric(P.Value)),</span></span>
+<span id="cb16-416"><a href="#cb16-416" aria-hidden="true" tabindex="-1"></a><span class="in">    sig          = case_when(</span></span>
+<span id="cb16-417"><a href="#cb16-417" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value &lt; 0.001 ~ &quot;***&quot;, p_value &lt; 0.01 ~ &quot;**&quot;,</span></span>
+<span id="cb16-418"><a href="#cb16-418" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value &lt; 0.05  ~ &quot;*&quot;,   p_value &lt; 0.10 ~ &quot;.&quot;, TRUE ~ &quot;&quot;)</span></span>
+<span id="cb16-419"><a href="#cb16-419" aria-hidden="true" tabindex="-1"></a><span class="in">  ) %&gt;%</span></span>
+<span id="cb16-420"><a href="#cb16-420" aria-hidden="true" tabindex="-1"></a><span class="in">  left_join(</span></span>
+<span id="cb16-421"><a href="#cb16-421" aria-hidden="true" tabindex="-1"></a><span class="in">    as.data.frame(sem_summary$R2) %&gt;%</span></span>
+<span id="cb16-422"><a href="#cb16-422" aria-hidden="true" tabindex="-1"></a><span class="in">      transmute(response       = Response,</span></span>
+<span id="cb16-423"><a href="#cb16-423" aria-hidden="true" tabindex="-1"></a><span class="in">                r2_marginal    = .[[r2_marg_col]],</span></span>
+<span id="cb16-424"><a href="#cb16-424" aria-hidden="true" tabindex="-1"></a><span class="in">                r2_conditional = .[[r2_cond_col]]),</span></span>
+<span id="cb16-425"><a href="#cb16-425" aria-hidden="true" tabindex="-1"></a><span class="in">    by = &quot;response&quot;</span></span>
+<span id="cb16-426"><a href="#cb16-426" aria-hidden="true" tabindex="-1"></a><span class="in">  )</span></span>
+<span id="cb16-427"><a href="#cb16-427" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-428"><a href="#cb16-428" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(dag_table, &quot;../output/DAG_coefficients.csv&quot;, row.names = FALSE)</span></span>
 <span id="cb16-429"><a href="#cb16-429" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-430"><a href="#cb16-430" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb16-431"><a href="#cb16-431" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-432"><a href="#cb16-432" aria-hidden="true" tabindex="-1"></a><span class="fu"># Rolling-window SEMs</span></span>
-<span id="cb16-433"><a href="#cb16-433" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-434"><a href="#cb16-434" aria-hidden="true" tabindex="-1"></a><span class="fu">## piecewise SEM structure per window</span></span>
+<span id="cb16-430"><a href="#cb16-430" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(</span></span>
+<span id="cb16-431"><a href="#cb16-431" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;Full psem — Fisher&#39;s C = %.2f (df = %d, p = %.3f) | AIC = %.1f&quot;,</span></span>
+<span id="cb16-432"><a href="#cb16-432" aria-hidden="true" tabindex="-1"></a><span class="in">  dag_fit$fishers_C, dag_fit$df, dag_fit$p_value, dag_fit$AIC</span></span>
+<span id="cb16-433"><a href="#cb16-433" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-434"><a href="#cb16-434" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 <span id="cb16-435"><a href="#cb16-435" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-436"><a href="#cb16-436" aria-hidden="true" tabindex="-1"></a><span class="in">```{r sem-structure}</span></span>
-<span id="cb16-437"><a href="#cb16-437" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Fit the piecewise SEM for one rolling window.</span></span>
-<span id="cb16-438"><a href="#cb16-438" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39;</span></span>
-<span id="cb16-439"><a href="#cb16-439" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Uses literal formula objects (not variables) so psem::summary() can</span></span>
-<span id="cb16-440"><a href="#cb16-440" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; re-evaluate $call for d-separation tests. Falls back to depth-only random</span></span>
-<span id="cb16-441"><a href="#cb16-441" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; structure if the nested structure fails.</span></span>
-<span id="cb16-442"><a href="#cb16-442" aria-hidden="true" tabindex="-1"></a><span class="in">fit_psem_window &lt;- function(data) {</span></span>
-<span id="cb16-443"><a href="#cb16-443" aria-hidden="true" tabindex="-1"></a><span class="in">  lc   &lt;- nlme::lmeControl(msMaxIter = 200, opt = &quot;optim&quot;)</span></span>
-<span id="cb16-444"><a href="#cb16-444" aria-hidden="true" tabindex="-1"></a><span class="in">  safe &lt;- function(expr) {</span></span>
-<span id="cb16-445"><a href="#cb16-445" aria-hidden="true" tabindex="-1"></a><span class="in">    tryCatch(</span></span>
-<span id="cb16-446"><a href="#cb16-446" aria-hidden="true" tabindex="-1"></a><span class="in">      withCallingHandlers(expr, warning = \(w) invokeRestart(&quot;muffleWarning&quot;)),</span></span>
-<span id="cb16-447"><a href="#cb16-447" aria-hidden="true" tabindex="-1"></a><span class="in">      error = \(e) NULL</span></span>
-<span id="cb16-448"><a href="#cb16-448" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
-<span id="cb16-449"><a href="#cb16-449" aria-hidden="true" tabindex="-1"></a><span class="in">  }</span></span>
-<span id="cb16-450"><a href="#cb16-450" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-451"><a href="#cb16-451" aria-hidden="true" tabindex="-1"></a><span class="in">  m_mc1 &lt;- safe(nlme::lme(microclimate_1 ~ land_use, data = data,</span></span>
-<span id="cb16-452"><a href="#cb16-452" aria-hidden="true" tabindex="-1"></a><span class="in">                           random = ~ 1 | depth,</span></span>
-<span id="cb16-453"><a href="#cb16-453" aria-hidden="true" tabindex="-1"></a><span class="in">                           correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
-<span id="cb16-454"><a href="#cb16-454" aria-hidden="true" tabindex="-1"></a><span class="in">  m_mc2 &lt;- safe(nlme::lme(microclimate_2 ~ land_use, data = data,</span></span>
-<span id="cb16-455"><a href="#cb16-455" aria-hidden="true" tabindex="-1"></a><span class="in">                           random = ~ 1 | depth,</span></span>
-<span id="cb16-456"><a href="#cb16-456" aria-hidden="true" tabindex="-1"></a><span class="in">                           correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
-<span id="cb16-457"><a href="#cb16-457" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-458"><a href="#cb16-458" aria-hidden="true" tabindex="-1"></a><span class="in">  m_root &lt;- safe(nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use, data = data,</span></span>
-<span id="cb16-459"><a href="#cb16-459" aria-hidden="true" tabindex="-1"></a><span class="in">                            random = ~ 1 | orientation / depth,</span></span>
-<span id="cb16-460"><a href="#cb16-460" aria-hidden="true" tabindex="-1"></a><span class="in">                            correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
-<span id="cb16-461"><a href="#cb16-461" aria-hidden="true" tabindex="-1"></a><span class="in">                            control = lc))</span></span>
-<span id="cb16-462"><a href="#cb16-462" aria-hidden="true" tabindex="-1"></a><span class="in">  if (is.null(m_root))</span></span>
-<span id="cb16-463"><a href="#cb16-463" aria-hidden="true" tabindex="-1"></a><span class="in">    m_root &lt;- safe(nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use, data = data,</span></span>
-<span id="cb16-464"><a href="#cb16-464" aria-hidden="true" tabindex="-1"></a><span class="in">                              random = ~ 1 | depth,</span></span>
-<span id="cb16-465"><a href="#cb16-465" aria-hidden="true" tabindex="-1"></a><span class="in">                              correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
-<span id="cb16-466"><a href="#cb16-466" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-467"><a href="#cb16-467" aria-hidden="true" tabindex="-1"></a><span class="in">  m_fauna &lt;- safe(nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
-<span id="cb16-468"><a href="#cb16-468" aria-hidden="true" tabindex="-1"></a><span class="in">                             data = data,</span></span>
-<span id="cb16-469"><a href="#cb16-469" aria-hidden="true" tabindex="-1"></a><span class="in">                             random = ~ 1 | orientation / depth,</span></span>
-<span id="cb16-470"><a href="#cb16-470" aria-hidden="true" tabindex="-1"></a><span class="in">                             correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
-<span id="cb16-471"><a href="#cb16-471" aria-hidden="true" tabindex="-1"></a><span class="in">                             control = lc))</span></span>
-<span id="cb16-472"><a href="#cb16-472" aria-hidden="true" tabindex="-1"></a><span class="in">  if (is.null(m_fauna))</span></span>
-<span id="cb16-473"><a href="#cb16-473" aria-hidden="true" tabindex="-1"></a><span class="in">    m_fauna &lt;- safe(nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
-<span id="cb16-474"><a href="#cb16-474" aria-hidden="true" tabindex="-1"></a><span class="in">                               data = data,</span></span>
-<span id="cb16-475"><a href="#cb16-475" aria-hidden="true" tabindex="-1"></a><span class="in">                               random = ~ 1 | depth,</span></span>
-<span id="cb16-476"><a href="#cb16-476" aria-hidden="true" tabindex="-1"></a><span class="in">                               correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
-<span id="cb16-477"><a href="#cb16-477" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-478"><a href="#cb16-478" aria-hidden="true" tabindex="-1"></a><span class="in">  if (any(sapply(list(m_mc1, m_mc2, m_root, m_fauna), is.null))) return(NULL)</span></span>
-<span id="cb16-479"><a href="#cb16-479" aria-hidden="true" tabindex="-1"></a><span class="in">  safe(psem(m_mc1, m_mc2, m_root, m_fauna,</span></span>
-<span id="cb16-480"><a href="#cb16-480" aria-hidden="true" tabindex="-1"></a><span class="in">            microclimate_1 %~~% microclimate_2, data = data))</span></span>
-<span id="cb16-481"><a href="#cb16-481" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
-<span id="cb16-482"><a href="#cb16-482" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-436"><a href="#cb16-436" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb16-437"><a href="#cb16-437" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-438"><a href="#cb16-438" aria-hidden="true" tabindex="-1"></a><span class="fu"># Rolling-window SEMs</span></span>
+<span id="cb16-439"><a href="#cb16-439" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-440"><a href="#cb16-440" aria-hidden="true" tabindex="-1"></a><span class="fu">## piecewise SEM structure per window</span></span>
+<span id="cb16-441"><a href="#cb16-441" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-442"><a href="#cb16-442" aria-hidden="true" tabindex="-1"></a><span class="in">```{r sem-structure}</span></span>
+<span id="cb16-443"><a href="#cb16-443" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Fit the piecewise SEM for one rolling window.</span></span>
+<span id="cb16-444"><a href="#cb16-444" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39;</span></span>
+<span id="cb16-445"><a href="#cb16-445" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Uses literal formula objects (not variables) so psem::summary() can</span></span>
+<span id="cb16-446"><a href="#cb16-446" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; re-evaluate $call for d-separation tests. Falls back to depth-only random</span></span>
+<span id="cb16-447"><a href="#cb16-447" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; structure if the nested structure fails.</span></span>
+<span id="cb16-448"><a href="#cb16-448" aria-hidden="true" tabindex="-1"></a><span class="in">fit_psem_window &lt;- function(data) {</span></span>
+<span id="cb16-449"><a href="#cb16-449" aria-hidden="true" tabindex="-1"></a><span class="in">  lc   &lt;- nlme::lmeControl(msMaxIter = 200, opt = &quot;optim&quot;)</span></span>
+<span id="cb16-450"><a href="#cb16-450" aria-hidden="true" tabindex="-1"></a><span class="in">  safe &lt;- function(expr) {</span></span>
+<span id="cb16-451"><a href="#cb16-451" aria-hidden="true" tabindex="-1"></a><span class="in">    tryCatch(</span></span>
+<span id="cb16-452"><a href="#cb16-452" aria-hidden="true" tabindex="-1"></a><span class="in">      withCallingHandlers(expr, warning = \(w) invokeRestart(&quot;muffleWarning&quot;)),</span></span>
+<span id="cb16-453"><a href="#cb16-453" aria-hidden="true" tabindex="-1"></a><span class="in">      error = \(e) NULL</span></span>
+<span id="cb16-454"><a href="#cb16-454" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
+<span id="cb16-455"><a href="#cb16-455" aria-hidden="true" tabindex="-1"></a><span class="in">  }</span></span>
+<span id="cb16-456"><a href="#cb16-456" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-457"><a href="#cb16-457" aria-hidden="true" tabindex="-1"></a><span class="in">  m_mc1 &lt;- safe(nlme::lme(microclimate_1 ~ land_use, data = data,</span></span>
+<span id="cb16-458"><a href="#cb16-458" aria-hidden="true" tabindex="-1"></a><span class="in">                           random = ~ 1 | depth,</span></span>
+<span id="cb16-459"><a href="#cb16-459" aria-hidden="true" tabindex="-1"></a><span class="in">                           correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
+<span id="cb16-460"><a href="#cb16-460" aria-hidden="true" tabindex="-1"></a><span class="in">  m_mc2 &lt;- safe(nlme::lme(microclimate_2 ~ land_use, data = data,</span></span>
+<span id="cb16-461"><a href="#cb16-461" aria-hidden="true" tabindex="-1"></a><span class="in">                           random = ~ 1 | depth,</span></span>
+<span id="cb16-462"><a href="#cb16-462" aria-hidden="true" tabindex="-1"></a><span class="in">                           correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
+<span id="cb16-463"><a href="#cb16-463" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-464"><a href="#cb16-464" aria-hidden="true" tabindex="-1"></a><span class="in">  m_root &lt;- safe(nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use, data = data,</span></span>
+<span id="cb16-465"><a href="#cb16-465" aria-hidden="true" tabindex="-1"></a><span class="in">                            random = ~ 1 | orientation / depth,</span></span>
+<span id="cb16-466"><a href="#cb16-466" aria-hidden="true" tabindex="-1"></a><span class="in">                            correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
+<span id="cb16-467"><a href="#cb16-467" aria-hidden="true" tabindex="-1"></a><span class="in">                            control = lc))</span></span>
+<span id="cb16-468"><a href="#cb16-468" aria-hidden="true" tabindex="-1"></a><span class="in">  if (is.null(m_root))</span></span>
+<span id="cb16-469"><a href="#cb16-469" aria-hidden="true" tabindex="-1"></a><span class="in">    m_root &lt;- safe(nlme::lme(root ~ microclimate_1 + microclimate_2 + land_use, data = data,</span></span>
+<span id="cb16-470"><a href="#cb16-470" aria-hidden="true" tabindex="-1"></a><span class="in">                              random = ~ 1 | depth,</span></span>
+<span id="cb16-471"><a href="#cb16-471" aria-hidden="true" tabindex="-1"></a><span class="in">                              correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
+<span id="cb16-472"><a href="#cb16-472" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-473"><a href="#cb16-473" aria-hidden="true" tabindex="-1"></a><span class="in">  m_fauna &lt;- safe(nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
+<span id="cb16-474"><a href="#cb16-474" aria-hidden="true" tabindex="-1"></a><span class="in">                             data = data,</span></span>
+<span id="cb16-475"><a href="#cb16-475" aria-hidden="true" tabindex="-1"></a><span class="in">                             random = ~ 1 | orientation / depth,</span></span>
+<span id="cb16-476"><a href="#cb16-476" aria-hidden="true" tabindex="-1"></a><span class="in">                             correlation = nlme::corAR1(form = ~ 1 | orientation / depth),</span></span>
+<span id="cb16-477"><a href="#cb16-477" aria-hidden="true" tabindex="-1"></a><span class="in">                             control = lc))</span></span>
+<span id="cb16-478"><a href="#cb16-478" aria-hidden="true" tabindex="-1"></a><span class="in">  if (is.null(m_fauna))</span></span>
+<span id="cb16-479"><a href="#cb16-479" aria-hidden="true" tabindex="-1"></a><span class="in">    m_fauna &lt;- safe(nlme::lme(fauna ~ microclimate_1 + microclimate_2 + root + land_use,</span></span>
+<span id="cb16-480"><a href="#cb16-480" aria-hidden="true" tabindex="-1"></a><span class="in">                               data = data,</span></span>
+<span id="cb16-481"><a href="#cb16-481" aria-hidden="true" tabindex="-1"></a><span class="in">                               random = ~ 1 | depth,</span></span>
+<span id="cb16-482"><a href="#cb16-482" aria-hidden="true" tabindex="-1"></a><span class="in">                               correlation = nlme::corAR1(form = ~ 1 | depth), control = lc))</span></span>
 <span id="cb16-483"><a href="#cb16-483" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-484"><a href="#cb16-484" aria-hidden="true" tabindex="-1"></a><span class="fu">## Rolling-window pipeline</span></span>
-<span id="cb16-485"><a href="#cb16-485" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-486"><a href="#cb16-486" aria-hidden="true" tabindex="-1"></a><span class="in">```{r sem-pipeline}</span></span>
-<span id="cb16-487"><a href="#cb16-487" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Rolling-window SEM pipeline for one taxon.</span></span>
-<span id="cb16-488"><a href="#cb16-488" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39;</span></span>
-<span id="cb16-489"><a href="#cb16-489" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Per-window steps: (1) subset + drop NAs, (2) apply Hellinger if selected,</span></span>
-<span id="cb16-490"><a href="#cb16-490" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; (3) z-score all modelled variables, (4) guard checks, (5) fit psem,</span></span>
-<span id="cb16-491"><a href="#cb16-491" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; (6) extract coefficients and R².</span></span>
-<span id="cb16-492"><a href="#cb16-492" aria-hidden="true" tabindex="-1"></a><span class="in">run_sem_pipeline &lt;- function(taxon_var, data_raw, m_indices,</span></span>
-<span id="cb16-493"><a href="#cb16-493" aria-hidden="true" tabindex="-1"></a><span class="in">                             window_days, min_rate) {</span></span>
-<span id="cb16-494"><a href="#cb16-494" aria-hidden="true" tabindex="-1"></a><span class="in">  cat(&quot;\n--- Taxon:&quot;, taxon_var, &quot;---\n&quot;)</span></span>
-<span id="cb16-495"><a href="#cb16-495" aria-hidden="true" tabindex="-1"></a><span class="in">  vars_to_scale &lt;- c(&quot;fauna&quot;, &quot;root&quot;, &quot;microclimate_1&quot;, &quot;microclimate_2&quot;)</span></span>
-<span id="cb16-496"><a href="#cb16-496" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-497"><a href="#cb16-497" aria-hidden="true" tabindex="-1"></a><span class="in">  sem_data &lt;- data_raw %&gt;%</span></span>
-<span id="cb16-498"><a href="#cb16-498" aria-hidden="true" tabindex="-1"></a><span class="in">    mutate(fauna          = !!sym(taxon_var),</span></span>
-<span id="cb16-499"><a href="#cb16-499" aria-hidden="true" tabindex="-1"></a><span class="in">           microclimate_1 = !!sym(m_indices[1]),</span></span>
-<span id="cb16-500"><a href="#cb16-500" aria-hidden="true" tabindex="-1"></a><span class="in">           microclimate_2 = !!sym(m_indices[2])) %&gt;%</span></span>
-<span id="cb16-501"><a href="#cb16-501" aria-hidden="true" tabindex="-1"></a><span class="in">    select(date, land_use, orientation, depth,</span></span>
-<span id="cb16-502"><a href="#cb16-502" aria-hidden="true" tabindex="-1"></a><span class="in">           fauna, root, microclimate_1, microclimate_2)</span></span>
-<span id="cb16-503"><a href="#cb16-503" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-504"><a href="#cb16-504" aria-hidden="true" tabindex="-1"></a><span class="in">  windows    &lt;- create_rolling_windows(sem_data, window_days)</span></span>
-<span id="cb16-505"><a href="#cb16-505" aria-hidden="true" tabindex="-1"></a><span class="in">  valid_wins &lt;- keep(windows, function(w) {</span></span>
-<span id="cb16-506"><a href="#cb16-506" aria-hidden="true" tabindex="-1"></a><span class="in">    n &lt;- nrow(w); nc &lt;- nrow(drop_na(w))</span></span>
-<span id="cb16-507"><a href="#cb16-507" aria-hidden="true" tabindex="-1"></a><span class="in">    n &gt; 0 &amp;&amp; (nc / n) &gt;= min_rate</span></span>
-<span id="cb16-508"><a href="#cb16-508" aria-hidden="true" tabindex="-1"></a><span class="in">  })</span></span>
+<span id="cb16-484"><a href="#cb16-484" aria-hidden="true" tabindex="-1"></a><span class="in">  if (any(sapply(list(m_mc1, m_mc2, m_root, m_fauna), is.null))) return(NULL)</span></span>
+<span id="cb16-485"><a href="#cb16-485" aria-hidden="true" tabindex="-1"></a><span class="in">  safe(psem(m_mc1, m_mc2, m_root, m_fauna,</span></span>
+<span id="cb16-486"><a href="#cb16-486" aria-hidden="true" tabindex="-1"></a><span class="in">            microclimate_1 %~~% microclimate_2, data = data))</span></span>
+<span id="cb16-487"><a href="#cb16-487" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
+<span id="cb16-488"><a href="#cb16-488" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-489"><a href="#cb16-489" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-490"><a href="#cb16-490" aria-hidden="true" tabindex="-1"></a><span class="fu">## Rolling-window pipeline</span></span>
+<span id="cb16-491"><a href="#cb16-491" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-492"><a href="#cb16-492" aria-hidden="true" tabindex="-1"></a><span class="in">```{r sem-pipeline}</span></span>
+<span id="cb16-493"><a href="#cb16-493" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Rolling-window SEM pipeline for one taxon.</span></span>
+<span id="cb16-494"><a href="#cb16-494" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39;</span></span>
+<span id="cb16-495"><a href="#cb16-495" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; Per-window steps: (1) subset + drop NAs, (2) apply Hellinger if selected,</span></span>
+<span id="cb16-496"><a href="#cb16-496" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; (3) z-score all modelled variables, (4) guard checks, (5) fit psem,</span></span>
+<span id="cb16-497"><a href="#cb16-497" aria-hidden="true" tabindex="-1"></a><span class="in">#&#39; (6) extract coefficients and R².</span></span>
+<span id="cb16-498"><a href="#cb16-498" aria-hidden="true" tabindex="-1"></a><span class="in">run_sem_pipeline &lt;- function(taxon_var, data_raw, m_indices,</span></span>
+<span id="cb16-499"><a href="#cb16-499" aria-hidden="true" tabindex="-1"></a><span class="in">                             window_days, min_rate) {</span></span>
+<span id="cb16-500"><a href="#cb16-500" aria-hidden="true" tabindex="-1"></a><span class="in">  cat(&quot;\n--- Taxon:&quot;, taxon_var, &quot;---\n&quot;)</span></span>
+<span id="cb16-501"><a href="#cb16-501" aria-hidden="true" tabindex="-1"></a><span class="in">  vars_to_scale &lt;- c(&quot;fauna&quot;, &quot;root&quot;, &quot;microclimate_1&quot;, &quot;microclimate_2&quot;)</span></span>
+<span id="cb16-502"><a href="#cb16-502" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-503"><a href="#cb16-503" aria-hidden="true" tabindex="-1"></a><span class="in">  sem_data &lt;- data_raw %&gt;%</span></span>
+<span id="cb16-504"><a href="#cb16-504" aria-hidden="true" tabindex="-1"></a><span class="in">    mutate(fauna          = !!sym(taxon_var),</span></span>
+<span id="cb16-505"><a href="#cb16-505" aria-hidden="true" tabindex="-1"></a><span class="in">           microclimate_1 = !!sym(m_indices[1]),</span></span>
+<span id="cb16-506"><a href="#cb16-506" aria-hidden="true" tabindex="-1"></a><span class="in">           microclimate_2 = !!sym(m_indices[2])) %&gt;%</span></span>
+<span id="cb16-507"><a href="#cb16-507" aria-hidden="true" tabindex="-1"></a><span class="in">    select(date, land_use, orientation, depth,</span></span>
+<span id="cb16-508"><a href="#cb16-508" aria-hidden="true" tabindex="-1"></a><span class="in">           fauna, root, microclimate_1, microclimate_2)</span></span>
 <span id="cb16-509"><a href="#cb16-509" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-510"><a href="#cb16-510" aria-hidden="true" tabindex="-1"></a><span class="in">  if (!is.null(selected_windows))</span></span>
-<span id="cb16-511"><a href="#cb16-511" aria-hidden="true" tabindex="-1"></a><span class="in">    valid_wins &lt;- valid_wins[as.Date(names(valid_wins)) %in% selected_windows]</span></span>
-<span id="cb16-512"><a href="#cb16-512" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-513"><a href="#cb16-513" aria-hidden="true" tabindex="-1"></a><span class="in">  cat(sprintf(&quot;  %d / %d windows retained.\n&quot;, length(valid_wins), length(windows)))</span></span>
-<span id="cb16-514"><a href="#cb16-514" aria-hidden="true" tabindex="-1"></a><span class="in">  if (length(valid_wins) == 0) return(NULL)</span></span>
+<span id="cb16-510"><a href="#cb16-510" aria-hidden="true" tabindex="-1"></a><span class="in">  windows    &lt;- create_rolling_windows(sem_data, window_days)</span></span>
+<span id="cb16-511"><a href="#cb16-511" aria-hidden="true" tabindex="-1"></a><span class="in">  valid_wins &lt;- keep(windows, function(w) {</span></span>
+<span id="cb16-512"><a href="#cb16-512" aria-hidden="true" tabindex="-1"></a><span class="in">    n &lt;- nrow(w); nc &lt;- nrow(drop_na(w))</span></span>
+<span id="cb16-513"><a href="#cb16-513" aria-hidden="true" tabindex="-1"></a><span class="in">    n &gt; 0 &amp;&amp; (nc / n) &gt;= min_rate</span></span>
+<span id="cb16-514"><a href="#cb16-514" aria-hidden="true" tabindex="-1"></a><span class="in">  })</span></span>
 <span id="cb16-515"><a href="#cb16-515" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-516"><a href="#cb16-516" aria-hidden="true" tabindex="-1"></a><span class="in">  results &lt;- suppressWarnings(map(names(valid_wins), function(w_name) {</span></span>
-<span id="cb16-517"><a href="#cb16-517" aria-hidden="true" tabindex="-1"></a><span class="in">    win_data &lt;- valid_wins[[w_name]] %&gt;%</span></span>
-<span id="cb16-518"><a href="#cb16-518" aria-hidden="true" tabindex="-1"></a><span class="in">      drop_na() %&gt;%</span></span>
-<span id="cb16-519"><a href="#cb16-519" aria-hidden="true" tabindex="-1"></a><span class="in">      arrange(land_use, orientation, depth, date)</span></span>
-<span id="cb16-520"><a href="#cb16-520" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-521"><a href="#cb16-521" aria-hidden="true" tabindex="-1"></a><span class="in">    if (TRANSFO_FAUNA == &quot;hellinger&quot;) {</span></span>
-<span id="cb16-522"><a href="#cb16-522" aria-hidden="true" tabindex="-1"></a><span class="in">      if (mean(win_data$fauna == 0, na.rm = TRUE) &gt; 0.8) return(NULL)</span></span>
-<span id="cb16-523"><a href="#cb16-523" aria-hidden="true" tabindex="-1"></a><span class="in">      win_data &lt;- mutate(win_data, fauna = sqrt(fauna / sum(fauna, na.rm = TRUE)))</span></span>
-<span id="cb16-524"><a href="#cb16-524" aria-hidden="true" tabindex="-1"></a><span class="in">    }</span></span>
-<span id="cb16-525"><a href="#cb16-525" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-526"><a href="#cb16-526" aria-hidden="true" tabindex="-1"></a><span class="in">    win_data &lt;- win_data %&gt;%</span></span>
-<span id="cb16-527"><a href="#cb16-527" aria-hidden="true" tabindex="-1"></a><span class="in">      mutate(across(all_of(vars_to_scale), ~ as.numeric(scale(.))))</span></span>
-<span id="cb16-528"><a href="#cb16-528" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-529"><a href="#cb16-529" aria-hidden="true" tabindex="-1"></a><span class="in">    stdevs &lt;- sapply(win_data[vars_to_scale], sd, na.rm = TRUE)</span></span>
-<span id="cb16-530"><a href="#cb16-530" aria-hidden="true" tabindex="-1"></a><span class="in">    if (any(is.na(stdevs) | stdevs == 0))                   return(NULL)</span></span>
-<span id="cb16-531"><a href="#cb16-531" aria-hidden="true" tabindex="-1"></a><span class="in">    if (length(unique(win_data$land_use)) &lt; 2)               return(NULL)</span></span>
-<span id="cb16-532"><a href="#cb16-532" aria-hidden="true" tabindex="-1"></a><span class="in">    if (any(!is.finite(as.matrix(win_data[vars_to_scale])))) return(NULL)</span></span>
-<span id="cb16-533"><a href="#cb16-533" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-534"><a href="#cb16-534" aria-hidden="true" tabindex="-1"></a><span class="in">    model &lt;- tryCatch(fit_psem_window(win_data), error = \(e) NULL)</span></span>
-<span id="cb16-535"><a href="#cb16-535" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(model)) return(NULL)</span></span>
-<span id="cb16-536"><a href="#cb16-536" aria-hidden="true" tabindex="-1"></a><span class="in">    sm &lt;- tryCatch(summary(model), error = \(e) NULL)</span></span>
-<span id="cb16-537"><a href="#cb16-537" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(sm)) return(NULL)</span></span>
-<span id="cb16-538"><a href="#cb16-538" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-539"><a href="#cb16-539" aria-hidden="true" tabindex="-1"></a><span class="in">    coefs &lt;- as.data.frame(sm$coefficients) %&gt;%</span></span>
-<span id="cb16-540"><a href="#cb16-540" aria-hidden="true" tabindex="-1"></a><span class="in">      setNames(make.names(names(.), unique = TRUE)) %&gt;%</span></span>
-<span id="cb16-541"><a href="#cb16-541" aria-hidden="true" tabindex="-1"></a><span class="in">      filter(!is.na(Response), Response != &quot;&quot;, Response != &quot;~~&quot;)</span></span>
-<span id="cb16-542"><a href="#cb16-542" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-543"><a href="#cb16-543" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_df     &lt;- as.data.frame(sm$R2)</span></span>
-<span id="cb16-544"><a href="#cb16-544" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_cols_w &lt;- names(r2_df)</span></span>
-<span id="cb16-545"><a href="#cb16-545" aria-hidden="true" tabindex="-1"></a><span class="in">    r2m_col   &lt;- r2_cols_w[grep(&quot;Marginal|R.squared$&quot;,    r2_cols_w)[1]]</span></span>
-<span id="cb16-546"><a href="#cb16-546" aria-hidden="true" tabindex="-1"></a><span class="in">    r2c_col   &lt;- r2_cols_w[grep(&quot;Conditional|R.squared.1&quot;, r2_cols_w)[1]]</span></span>
-<span id="cb16-547"><a href="#cb16-547" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-548"><a href="#cb16-548" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_tbl &lt;- r2_df %&gt;%</span></span>
-<span id="cb16-549"><a href="#cb16-549" aria-hidden="true" tabindex="-1"></a><span class="in">      transmute(response = Response, r2_marg = .[[r2m_col]], r2_cond = .[[r2c_col]])</span></span>
-<span id="cb16-550"><a href="#cb16-550" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-551"><a href="#cb16-551" aria-hidden="true" tabindex="-1"></a><span class="in">    tibble(</span></span>
-<span id="cb16-552"><a href="#cb16-552" aria-hidden="true" tabindex="-1"></a><span class="in">      taxon        = taxon_var,</span></span>
-<span id="cb16-553"><a href="#cb16-553" aria-hidden="true" tabindex="-1"></a><span class="in">      date_start   = as.Date(w_name),</span></span>
-<span id="cb16-554"><a href="#cb16-554" aria-hidden="true" tabindex="-1"></a><span class="in">      n_obs        = sm$n,</span></span>
-<span id="cb16-555"><a href="#cb16-555" aria-hidden="true" tabindex="-1"></a><span class="in">      response     = coefs$Response,</span></span>
-<span id="cb16-556"><a href="#cb16-556" aria-hidden="true" tabindex="-1"></a><span class="in">      predictor    = coefs$Predictor,</span></span>
-<span id="cb16-557"><a href="#cb16-557" aria-hidden="true" tabindex="-1"></a><span class="in">      estimate     = coefs$Estimate,</span></span>
-<span id="cb16-558"><a href="#cb16-558" aria-hidden="true" tabindex="-1"></a><span class="in">      std_estimate = coefs$Std.Estimate,</span></span>
-<span id="cb16-559"><a href="#cb16-559" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value      = suppressWarnings(as.numeric(gsub(&quot;[^0-9.e-]&quot;, &quot;&quot;, coefs$P.Value)))</span></span>
-<span id="cb16-560"><a href="#cb16-560" aria-hidden="true" tabindex="-1"></a><span class="in">    ) %&gt;%</span></span>
-<span id="cb16-561"><a href="#cb16-561" aria-hidden="true" tabindex="-1"></a><span class="in">      left_join(r2_tbl, by = &quot;response&quot;)</span></span>
-<span id="cb16-562"><a href="#cb16-562" aria-hidden="true" tabindex="-1"></a><span class="in">  })) %&gt;% compact()</span></span>
-<span id="cb16-563"><a href="#cb16-563" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-564"><a href="#cb16-564" aria-hidden="true" tabindex="-1"></a><span class="in">  if (length(results) == 0) return(NULL)</span></span>
-<span id="cb16-565"><a href="#cb16-565" aria-hidden="true" tabindex="-1"></a><span class="in">  map_dfr(results, ~ .x)</span></span>
-<span id="cb16-566"><a href="#cb16-566" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
-<span id="cb16-567"><a href="#cb16-567" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb16-568"><a href="#cb16-568" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-569"><a href="#cb16-569" aria-hidden="true" tabindex="-1"></a><span class="fu">## Execution</span></span>
-<span id="cb16-570"><a href="#cb16-570" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-571"><a href="#cb16-571" aria-hidden="true" tabindex="-1"></a><span class="in">```{r sem-execution}</span></span>
-<span id="cb16-572"><a href="#cb16-572" aria-hidden="true" tabindex="-1"></a><span class="in">message(&quot;&gt;&gt;&gt; Running rolling-window SEMs for all taxa...&quot;)</span></span>
-<span id="cb16-573"><a href="#cb16-573" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-574"><a href="#cb16-574" aria-hidden="true" tabindex="-1"></a><span class="in">sem_results_raw &lt;- suppressWarnings(</span></span>
-<span id="cb16-575"><a href="#cb16-575" aria-hidden="true" tabindex="-1"></a><span class="in">  map(fauna_vars, ~ run_sem_pipeline(</span></span>
-<span id="cb16-576"><a href="#cb16-576" aria-hidden="true" tabindex="-1"></a><span class="in">    .x, data_transformed, microclimate_index, WIN_DAYS, MIN_RATE</span></span>
-<span id="cb16-577"><a href="#cb16-577" aria-hidden="true" tabindex="-1"></a><span class="in">  )) %&gt;%</span></span>
-<span id="cb16-578"><a href="#cb16-578" aria-hidden="true" tabindex="-1"></a><span class="in">    compact() %&gt;%</span></span>
-<span id="cb16-579"><a href="#cb16-579" aria-hidden="true" tabindex="-1"></a><span class="in">    map_dfr(~ .x)</span></span>
-<span id="cb16-580"><a href="#cb16-580" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
-<span id="cb16-581"><a href="#cb16-581" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-582"><a href="#cb16-582" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(&quot;SEMs complete: %d coefficient rows across %d taxa.&quot;,</span></span>
-<span id="cb16-583"><a href="#cb16-583" aria-hidden="true" tabindex="-1"></a><span class="in">                nrow(sem_results_raw), n_distinct(sem_results_raw$taxon)))</span></span>
-<span id="cb16-584"><a href="#cb16-584" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb16-585"><a href="#cb16-585" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-586"><a href="#cb16-586" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb16-516"><a href="#cb16-516" aria-hidden="true" tabindex="-1"></a><span class="in">  if (!is.null(selected_windows))</span></span>
+<span id="cb16-517"><a href="#cb16-517" aria-hidden="true" tabindex="-1"></a><span class="in">    valid_wins &lt;- valid_wins[as.Date(names(valid_wins)) %in% selected_windows]</span></span>
+<span id="cb16-518"><a href="#cb16-518" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-519"><a href="#cb16-519" aria-hidden="true" tabindex="-1"></a><span class="in">  cat(sprintf(&quot;  %d / %d windows retained.\n&quot;, length(valid_wins), length(windows)))</span></span>
+<span id="cb16-520"><a href="#cb16-520" aria-hidden="true" tabindex="-1"></a><span class="in">  if (length(valid_wins) == 0) return(NULL)</span></span>
+<span id="cb16-521"><a href="#cb16-521" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-522"><a href="#cb16-522" aria-hidden="true" tabindex="-1"></a><span class="in">  results &lt;- suppressWarnings(map(names(valid_wins), function(w_name) {</span></span>
+<span id="cb16-523"><a href="#cb16-523" aria-hidden="true" tabindex="-1"></a><span class="in">    win_data &lt;- valid_wins[[w_name]] %&gt;%</span></span>
+<span id="cb16-524"><a href="#cb16-524" aria-hidden="true" tabindex="-1"></a><span class="in">      drop_na() %&gt;%</span></span>
+<span id="cb16-525"><a href="#cb16-525" aria-hidden="true" tabindex="-1"></a><span class="in">      arrange(land_use, orientation, depth, date)</span></span>
+<span id="cb16-526"><a href="#cb16-526" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-527"><a href="#cb16-527" aria-hidden="true" tabindex="-1"></a><span class="in">    if (TRANSFO_FAUNA == &quot;hellinger&quot;) {</span></span>
+<span id="cb16-528"><a href="#cb16-528" aria-hidden="true" tabindex="-1"></a><span class="in">      if (mean(win_data$fauna == 0, na.rm = TRUE) &gt; 0.8) return(NULL)</span></span>
+<span id="cb16-529"><a href="#cb16-529" aria-hidden="true" tabindex="-1"></a><span class="in">      win_data &lt;- mutate(win_data, fauna = sqrt(fauna / sum(fauna, na.rm = TRUE)))</span></span>
+<span id="cb16-530"><a href="#cb16-530" aria-hidden="true" tabindex="-1"></a><span class="in">    }</span></span>
+<span id="cb16-531"><a href="#cb16-531" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-532"><a href="#cb16-532" aria-hidden="true" tabindex="-1"></a><span class="in">    win_data &lt;- win_data %&gt;%</span></span>
+<span id="cb16-533"><a href="#cb16-533" aria-hidden="true" tabindex="-1"></a><span class="in">      mutate(across(all_of(vars_to_scale), ~ as.numeric(scale(.))))</span></span>
+<span id="cb16-534"><a href="#cb16-534" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-535"><a href="#cb16-535" aria-hidden="true" tabindex="-1"></a><span class="in">    stdevs &lt;- sapply(win_data[vars_to_scale], sd, na.rm = TRUE)</span></span>
+<span id="cb16-536"><a href="#cb16-536" aria-hidden="true" tabindex="-1"></a><span class="in">    if (any(is.na(stdevs) | stdevs == 0))                   return(NULL)</span></span>
+<span id="cb16-537"><a href="#cb16-537" aria-hidden="true" tabindex="-1"></a><span class="in">    if (length(unique(win_data$land_use)) &lt; 2)               return(NULL)</span></span>
+<span id="cb16-538"><a href="#cb16-538" aria-hidden="true" tabindex="-1"></a><span class="in">    if (any(!is.finite(as.matrix(win_data[vars_to_scale])))) return(NULL)</span></span>
+<span id="cb16-539"><a href="#cb16-539" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-540"><a href="#cb16-540" aria-hidden="true" tabindex="-1"></a><span class="in">    model &lt;- tryCatch(fit_psem_window(win_data), error = \(e) NULL)</span></span>
+<span id="cb16-541"><a href="#cb16-541" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(model)) return(NULL)</span></span>
+<span id="cb16-542"><a href="#cb16-542" aria-hidden="true" tabindex="-1"></a><span class="in">    sm &lt;- tryCatch(summary(model), error = \(e) NULL)</span></span>
+<span id="cb16-543"><a href="#cb16-543" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(sm)) return(NULL)</span></span>
+<span id="cb16-544"><a href="#cb16-544" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-545"><a href="#cb16-545" aria-hidden="true" tabindex="-1"></a><span class="in">    coefs &lt;- as.data.frame(sm$coefficients) %&gt;%</span></span>
+<span id="cb16-546"><a href="#cb16-546" aria-hidden="true" tabindex="-1"></a><span class="in">      setNames(make.names(names(.), unique = TRUE)) %&gt;%</span></span>
+<span id="cb16-547"><a href="#cb16-547" aria-hidden="true" tabindex="-1"></a><span class="in">      filter(!is.na(Response), Response != &quot;&quot;, Response != &quot;~~&quot;)</span></span>
+<span id="cb16-548"><a href="#cb16-548" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-549"><a href="#cb16-549" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_df     &lt;- as.data.frame(sm$R2)</span></span>
+<span id="cb16-550"><a href="#cb16-550" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_cols_w &lt;- names(r2_df)</span></span>
+<span id="cb16-551"><a href="#cb16-551" aria-hidden="true" tabindex="-1"></a><span class="in">    r2m_col   &lt;- r2_cols_w[grep(&quot;Marginal|R.squared$&quot;,    r2_cols_w)[1]]</span></span>
+<span id="cb16-552"><a href="#cb16-552" aria-hidden="true" tabindex="-1"></a><span class="in">    r2c_col   &lt;- r2_cols_w[grep(&quot;Conditional|R.squared.1&quot;, r2_cols_w)[1]]</span></span>
+<span id="cb16-553"><a href="#cb16-553" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-554"><a href="#cb16-554" aria-hidden="true" tabindex="-1"></a><span class="in">    r2_tbl &lt;- r2_df %&gt;%</span></span>
+<span id="cb16-555"><a href="#cb16-555" aria-hidden="true" tabindex="-1"></a><span class="in">      transmute(response = Response, r2_marg = .[[r2m_col]], r2_cond = .[[r2c_col]])</span></span>
+<span id="cb16-556"><a href="#cb16-556" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-557"><a href="#cb16-557" aria-hidden="true" tabindex="-1"></a><span class="in">    tibble(</span></span>
+<span id="cb16-558"><a href="#cb16-558" aria-hidden="true" tabindex="-1"></a><span class="in">      taxon        = taxon_var,</span></span>
+<span id="cb16-559"><a href="#cb16-559" aria-hidden="true" tabindex="-1"></a><span class="in">      date_start   = as.Date(w_name),</span></span>
+<span id="cb16-560"><a href="#cb16-560" aria-hidden="true" tabindex="-1"></a><span class="in">      n_obs        = sm$n,</span></span>
+<span id="cb16-561"><a href="#cb16-561" aria-hidden="true" tabindex="-1"></a><span class="in">      response     = coefs$Response,</span></span>
+<span id="cb16-562"><a href="#cb16-562" aria-hidden="true" tabindex="-1"></a><span class="in">      predictor    = coefs$Predictor,</span></span>
+<span id="cb16-563"><a href="#cb16-563" aria-hidden="true" tabindex="-1"></a><span class="in">      estimate     = coefs$Estimate,</span></span>
+<span id="cb16-564"><a href="#cb16-564" aria-hidden="true" tabindex="-1"></a><span class="in">      std_estimate = coefs$Std.Estimate,</span></span>
+<span id="cb16-565"><a href="#cb16-565" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value      = suppressWarnings(as.numeric(gsub(&quot;[^0-9.e-]&quot;, &quot;&quot;, coefs$P.Value)))</span></span>
+<span id="cb16-566"><a href="#cb16-566" aria-hidden="true" tabindex="-1"></a><span class="in">    ) %&gt;%</span></span>
+<span id="cb16-567"><a href="#cb16-567" aria-hidden="true" tabindex="-1"></a><span class="in">      left_join(r2_tbl, by = &quot;response&quot;)</span></span>
+<span id="cb16-568"><a href="#cb16-568" aria-hidden="true" tabindex="-1"></a><span class="in">  })) %&gt;% compact()</span></span>
+<span id="cb16-569"><a href="#cb16-569" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-570"><a href="#cb16-570" aria-hidden="true" tabindex="-1"></a><span class="in">  if (length(results) == 0) return(NULL)</span></span>
+<span id="cb16-571"><a href="#cb16-571" aria-hidden="true" tabindex="-1"></a><span class="in">  map_dfr(results, ~ .x)</span></span>
+<span id="cb16-572"><a href="#cb16-572" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
+<span id="cb16-573"><a href="#cb16-573" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-574"><a href="#cb16-574" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-575"><a href="#cb16-575" aria-hidden="true" tabindex="-1"></a><span class="fu">## Execution</span></span>
+<span id="cb16-576"><a href="#cb16-576" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-577"><a href="#cb16-577" aria-hidden="true" tabindex="-1"></a><span class="in">```{r sem-execution}</span></span>
+<span id="cb16-578"><a href="#cb16-578" aria-hidden="true" tabindex="-1"></a><span class="in">message(&quot;&gt;&gt;&gt; Running rolling-window SEMs for all taxa...&quot;)</span></span>
+<span id="cb16-579"><a href="#cb16-579" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-580"><a href="#cb16-580" aria-hidden="true" tabindex="-1"></a><span class="in">sem_results_raw &lt;- suppressWarnings(</span></span>
+<span id="cb16-581"><a href="#cb16-581" aria-hidden="true" tabindex="-1"></a><span class="in">  map(fauna_vars, ~ run_sem_pipeline(</span></span>
+<span id="cb16-582"><a href="#cb16-582" aria-hidden="true" tabindex="-1"></a><span class="in">    .x, data_transformed, microclimate_index, WIN_DAYS, MIN_RATE</span></span>
+<span id="cb16-583"><a href="#cb16-583" aria-hidden="true" tabindex="-1"></a><span class="in">  )) %&gt;%</span></span>
+<span id="cb16-584"><a href="#cb16-584" aria-hidden="true" tabindex="-1"></a><span class="in">    compact() %&gt;%</span></span>
+<span id="cb16-585"><a href="#cb16-585" aria-hidden="true" tabindex="-1"></a><span class="in">    map_dfr(~ .x)</span></span>
+<span id="cb16-586"><a href="#cb16-586" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
 <span id="cb16-587"><a href="#cb16-587" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-588"><a href="#cb16-588" aria-hidden="true" tabindex="-1"></a><span class="fu"># Rolling-window H1 models</span></span>
-<span id="cb16-589"><a href="#cb16-589" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-590"><a href="#cb16-590" aria-hidden="true" tabindex="-1"></a>Per-window simple LME (<span class="in">`y ~ land_use`</span>) for all response variables. These are total land-use effects estimated in isolation (not SEM partial effects), saved for the rolling-window H1 visualisation in S4.</span>
+<span id="cb16-588"><a href="#cb16-588" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(&quot;SEMs complete: %d coefficient rows across %d taxa.&quot;,</span></span>
+<span id="cb16-589"><a href="#cb16-589" aria-hidden="true" tabindex="-1"></a><span class="in">                nrow(sem_results_raw), n_distinct(sem_results_raw$taxon)))</span></span>
+<span id="cb16-590"><a href="#cb16-590" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 <span id="cb16-591"><a href="#cb16-591" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-592"><a href="#cb16-592" aria-hidden="true" tabindex="-1"></a><span class="in">```{r h1-rolling}</span></span>
-<span id="cb16-593"><a href="#cb16-593" aria-hidden="true" tabindex="-1"></a><span class="in">fit_h1_windows &lt;- function(response_var, response_group, data_raw,</span></span>
-<span id="cb16-594"><a href="#cb16-594" aria-hidden="true" tabindex="-1"></a><span class="in">                           win_days, min_rate) {</span></span>
-<span id="cb16-595"><a href="#cb16-595" aria-hidden="true" tabindex="-1"></a><span class="in">  rand_primary  &lt;- if (response_group == &quot;microclimate&quot;) ~ 1 | depth</span></span>
-<span id="cb16-596"><a href="#cb16-596" aria-hidden="true" tabindex="-1"></a><span class="in">                   else ~ 1 | orientation / depth</span></span>
-<span id="cb16-597"><a href="#cb16-597" aria-hidden="true" tabindex="-1"></a><span class="in">  rand_fallback &lt;- ~ 1 | depth</span></span>
-<span id="cb16-598"><a href="#cb16-598" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-599"><a href="#cb16-599" aria-hidden="true" tabindex="-1"></a><span class="in">  df &lt;- data_raw %&gt;%</span></span>
-<span id="cb16-600"><a href="#cb16-600" aria-hidden="true" tabindex="-1"></a><span class="in">    mutate(y = !!sym(response_var)) %&gt;%</span></span>
-<span id="cb16-601"><a href="#cb16-601" aria-hidden="true" tabindex="-1"></a><span class="in">    select(date, land_use, orientation, depth, y) %&gt;%</span></span>
-<span id="cb16-602"><a href="#cb16-602" aria-hidden="true" tabindex="-1"></a><span class="in">    drop_na()</span></span>
-<span id="cb16-603"><a href="#cb16-603" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-604"><a href="#cb16-604" aria-hidden="true" tabindex="-1"></a><span class="in">  windows    &lt;- create_rolling_windows(df, win_days)</span></span>
-<span id="cb16-605"><a href="#cb16-605" aria-hidden="true" tabindex="-1"></a><span class="in">  valid_wins &lt;- keep(windows, function(w) {</span></span>
-<span id="cb16-606"><a href="#cb16-606" aria-hidden="true" tabindex="-1"></a><span class="in">    n &lt;- nrow(w); nc &lt;- nrow(drop_na(w))</span></span>
-<span id="cb16-607"><a href="#cb16-607" aria-hidden="true" tabindex="-1"></a><span class="in">    n &gt; 0 &amp;&amp; (nc / n) &gt;= min_rate</span></span>
-<span id="cb16-608"><a href="#cb16-608" aria-hidden="true" tabindex="-1"></a><span class="in">  })</span></span>
+<span id="cb16-592"><a href="#cb16-592" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb16-593"><a href="#cb16-593" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-594"><a href="#cb16-594" aria-hidden="true" tabindex="-1"></a><span class="fu"># Rolling-window H1 models</span></span>
+<span id="cb16-595"><a href="#cb16-595" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-596"><a href="#cb16-596" aria-hidden="true" tabindex="-1"></a>Per-window simple LME (<span class="in">`y ~ land_use`</span>) for all response variables. These are total land-use effects estimated in isolation (not SEM partial effects), saved for the rolling-window H1 visualisation in S4.</span>
+<span id="cb16-597"><a href="#cb16-597" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-598"><a href="#cb16-598" aria-hidden="true" tabindex="-1"></a><span class="in">```{r h1-rolling}</span></span>
+<span id="cb16-599"><a href="#cb16-599" aria-hidden="true" tabindex="-1"></a><span class="in">fit_h1_windows &lt;- function(response_var, response_group, data_raw,</span></span>
+<span id="cb16-600"><a href="#cb16-600" aria-hidden="true" tabindex="-1"></a><span class="in">                           win_days, min_rate) {</span></span>
+<span id="cb16-601"><a href="#cb16-601" aria-hidden="true" tabindex="-1"></a><span class="in">  rand_primary  &lt;- if (response_group == &quot;microclimate&quot;) ~ 1 | depth</span></span>
+<span id="cb16-602"><a href="#cb16-602" aria-hidden="true" tabindex="-1"></a><span class="in">                   else ~ 1 | orientation / depth</span></span>
+<span id="cb16-603"><a href="#cb16-603" aria-hidden="true" tabindex="-1"></a><span class="in">  rand_fallback &lt;- ~ 1 | depth</span></span>
+<span id="cb16-604"><a href="#cb16-604" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-605"><a href="#cb16-605" aria-hidden="true" tabindex="-1"></a><span class="in">  df &lt;- data_raw %&gt;%</span></span>
+<span id="cb16-606"><a href="#cb16-606" aria-hidden="true" tabindex="-1"></a><span class="in">    mutate(y = !!sym(response_var)) %&gt;%</span></span>
+<span id="cb16-607"><a href="#cb16-607" aria-hidden="true" tabindex="-1"></a><span class="in">    select(date, land_use, orientation, depth, y) %&gt;%</span></span>
+<span id="cb16-608"><a href="#cb16-608" aria-hidden="true" tabindex="-1"></a><span class="in">    drop_na()</span></span>
 <span id="cb16-609"><a href="#cb16-609" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-610"><a href="#cb16-610" aria-hidden="true" tabindex="-1"></a><span class="in">  if (!is.null(selected_windows))</span></span>
-<span id="cb16-611"><a href="#cb16-611" aria-hidden="true" tabindex="-1"></a><span class="in">    valid_wins &lt;- valid_wins[as.Date(names(valid_wins)) %in% selected_windows]</span></span>
-<span id="cb16-612"><a href="#cb16-612" aria-hidden="true" tabindex="-1"></a><span class="in">  if (length(valid_wins) == 0) return(NULL)</span></span>
-<span id="cb16-613"><a href="#cb16-613" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-614"><a href="#cb16-614" aria-hidden="true" tabindex="-1"></a><span class="in">  map_dfr(names(valid_wins), function(w_name) {</span></span>
-<span id="cb16-615"><a href="#cb16-615" aria-hidden="true" tabindex="-1"></a><span class="in">    wd &lt;- valid_wins[[w_name]] %&gt;%</span></span>
-<span id="cb16-616"><a href="#cb16-616" aria-hidden="true" tabindex="-1"></a><span class="in">      drop_na() %&gt;%</span></span>
-<span id="cb16-617"><a href="#cb16-617" aria-hidden="true" tabindex="-1"></a><span class="in">      arrange(land_use, orientation, depth, date) %&gt;%</span></span>
-<span id="cb16-618"><a href="#cb16-618" aria-hidden="true" tabindex="-1"></a><span class="in">      mutate(y = as.numeric(scale(y)))</span></span>
+<span id="cb16-610"><a href="#cb16-610" aria-hidden="true" tabindex="-1"></a><span class="in">  windows    &lt;- create_rolling_windows(df, win_days)</span></span>
+<span id="cb16-611"><a href="#cb16-611" aria-hidden="true" tabindex="-1"></a><span class="in">  valid_wins &lt;- keep(windows, function(w) {</span></span>
+<span id="cb16-612"><a href="#cb16-612" aria-hidden="true" tabindex="-1"></a><span class="in">    n &lt;- nrow(w); nc &lt;- nrow(drop_na(w))</span></span>
+<span id="cb16-613"><a href="#cb16-613" aria-hidden="true" tabindex="-1"></a><span class="in">    n &gt; 0 &amp;&amp; (nc / n) &gt;= min_rate</span></span>
+<span id="cb16-614"><a href="#cb16-614" aria-hidden="true" tabindex="-1"></a><span class="in">  })</span></span>
+<span id="cb16-615"><a href="#cb16-615" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-616"><a href="#cb16-616" aria-hidden="true" tabindex="-1"></a><span class="in">  if (!is.null(selected_windows))</span></span>
+<span id="cb16-617"><a href="#cb16-617" aria-hidden="true" tabindex="-1"></a><span class="in">    valid_wins &lt;- valid_wins[as.Date(names(valid_wins)) %in% selected_windows]</span></span>
+<span id="cb16-618"><a href="#cb16-618" aria-hidden="true" tabindex="-1"></a><span class="in">  if (length(valid_wins) == 0) return(NULL)</span></span>
 <span id="cb16-619"><a href="#cb16-619" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-620"><a href="#cb16-620" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.na(sd(wd$y, na.rm = TRUE)) || sd(wd$y, na.rm = TRUE) == 0) return(NULL)</span></span>
-<span id="cb16-621"><a href="#cb16-621" aria-hidden="true" tabindex="-1"></a><span class="in">    if (length(unique(wd$land_use)) &lt; 2) return(NULL)</span></span>
-<span id="cb16-622"><a href="#cb16-622" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-623"><a href="#cb16-623" aria-hidden="true" tabindex="-1"></a><span class="in">    m &lt;- fit_lme_safe(y ~ land_use, wd, rand_primary)</span></span>
-<span id="cb16-624"><a href="#cb16-624" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(m) &amp;&amp; response_group != &quot;microclimate&quot;)</span></span>
-<span id="cb16-625"><a href="#cb16-625" aria-hidden="true" tabindex="-1"></a><span class="in">      m &lt;- fit_lme_safe(y ~ land_use, wd, rand_fallback)</span></span>
-<span id="cb16-626"><a href="#cb16-626" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(m)) return(NULL)</span></span>
-<span id="cb16-627"><a href="#cb16-627" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-628"><a href="#cb16-628" aria-hidden="true" tabindex="-1"></a><span class="in">    tt  &lt;- summary(m)$tTable</span></span>
-<span id="cb16-629"><a href="#cb16-629" aria-hidden="true" tabindex="-1"></a><span class="in">    r2  &lt;- r2_lme(m)</span></span>
-<span id="cb16-630"><a href="#cb16-630" aria-hidden="true" tabindex="-1"></a><span class="in">    phi &lt;- tryCatch(</span></span>
-<span id="cb16-631"><a href="#cb16-631" aria-hidden="true" tabindex="-1"></a><span class="in">      as.numeric(coef(m$modelStruct$corStruct, unconstrained = FALSE)),</span></span>
-<span id="cb16-632"><a href="#cb16-632" aria-hidden="true" tabindex="-1"></a><span class="in">      error = \(e) NA_real_</span></span>
-<span id="cb16-633"><a href="#cb16-633" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
-<span id="cb16-634"><a href="#cb16-634" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-635"><a href="#cb16-635" aria-hidden="true" tabindex="-1"></a><span class="in">    tibble(</span></span>
-<span id="cb16-636"><a href="#cb16-636" aria-hidden="true" tabindex="-1"></a><span class="in">      response       = response_var,</span></span>
-<span id="cb16-637"><a href="#cb16-637" aria-hidden="true" tabindex="-1"></a><span class="in">      response_group = response_group,</span></span>
-<span id="cb16-638"><a href="#cb16-638" aria-hidden="true" tabindex="-1"></a><span class="in">      date_start     = as.Date(w_name),</span></span>
-<span id="cb16-639"><a href="#cb16-639" aria-hidden="true" tabindex="-1"></a><span class="in">      season         = season_lookup$season[month(as.Date(w_name))],</span></span>
-<span id="cb16-640"><a href="#cb16-640" aria-hidden="true" tabindex="-1"></a><span class="in">      n_obs          = nrow(wd),</span></span>
-<span id="cb16-641"><a href="#cb16-641" aria-hidden="true" tabindex="-1"></a><span class="in">      beta_land_use  = tt[&quot;land_use&quot;, &quot;Value&quot;],</span></span>
-<span id="cb16-642"><a href="#cb16-642" aria-hidden="true" tabindex="-1"></a><span class="in">      se_land_use    = tt[&quot;land_use&quot;, &quot;Std.Error&quot;],</span></span>
-<span id="cb16-643"><a href="#cb16-643" aria-hidden="true" tabindex="-1"></a><span class="in">      t_value        = tt[&quot;land_use&quot;, &quot;t-value&quot;],</span></span>
-<span id="cb16-644"><a href="#cb16-644" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value        = tt[&quot;land_use&quot;, &quot;p-value&quot;],</span></span>
-<span id="cb16-645"><a href="#cb16-645" aria-hidden="true" tabindex="-1"></a><span class="in">      ar1_phi        = phi,</span></span>
-<span id="cb16-646"><a href="#cb16-646" aria-hidden="true" tabindex="-1"></a><span class="in">      r2_marginal    = as.numeric(r2[&quot;R2m&quot;]),</span></span>
-<span id="cb16-647"><a href="#cb16-647" aria-hidden="true" tabindex="-1"></a><span class="in">      r2_conditional = as.numeric(r2[&quot;R2c&quot;]),</span></span>
-<span id="cb16-648"><a href="#cb16-648" aria-hidden="true" tabindex="-1"></a><span class="in">      delta_r2       = as.numeric(r2[&quot;R2c&quot;]) - as.numeric(r2[&quot;R2m&quot;])</span></span>
-<span id="cb16-649"><a href="#cb16-649" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
-<span id="cb16-650"><a href="#cb16-650" aria-hidden="true" tabindex="-1"></a><span class="in">  })</span></span>
-<span id="cb16-651"><a href="#cb16-651" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
-<span id="cb16-652"><a href="#cb16-652" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-653"><a href="#cb16-653" aria-hidden="true" tabindex="-1"></a><span class="in">message(&quot;&gt;&gt;&gt; Running H1 rolling-window models...&quot;)</span></span>
-<span id="cb16-654"><a href="#cb16-654" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-655"><a href="#cb16-655" aria-hidden="true" tabindex="-1"></a><span class="in">h1_response_map &lt;- c(</span></span>
-<span id="cb16-656"><a href="#cb16-656" aria-hidden="true" tabindex="-1"></a><span class="in">  setNames(rep(&quot;microclimate&quot;, 2),            microclimate_index),</span></span>
-<span id="cb16-657"><a href="#cb16-657" aria-hidden="true" tabindex="-1"></a><span class="in">  root_growth_cm2_count_24h = &quot;root&quot;,</span></span>
-<span id="cb16-658"><a href="#cb16-658" aria-hidden="true" tabindex="-1"></a><span class="in">  setNames(rep(&quot;fauna&quot;, length(fauna_vars)),  fauna_vars)</span></span>
-<span id="cb16-659"><a href="#cb16-659" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
+<span id="cb16-620"><a href="#cb16-620" aria-hidden="true" tabindex="-1"></a><span class="in">  map_dfr(names(valid_wins), function(w_name) {</span></span>
+<span id="cb16-621"><a href="#cb16-621" aria-hidden="true" tabindex="-1"></a><span class="in">    wd &lt;- valid_wins[[w_name]] %&gt;%</span></span>
+<span id="cb16-622"><a href="#cb16-622" aria-hidden="true" tabindex="-1"></a><span class="in">      drop_na() %&gt;%</span></span>
+<span id="cb16-623"><a href="#cb16-623" aria-hidden="true" tabindex="-1"></a><span class="in">      arrange(land_use, orientation, depth, date) %&gt;%</span></span>
+<span id="cb16-624"><a href="#cb16-624" aria-hidden="true" tabindex="-1"></a><span class="in">      mutate(y = as.numeric(scale(y)))</span></span>
+<span id="cb16-625"><a href="#cb16-625" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-626"><a href="#cb16-626" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.na(sd(wd$y, na.rm = TRUE)) || sd(wd$y, na.rm = TRUE) == 0) return(NULL)</span></span>
+<span id="cb16-627"><a href="#cb16-627" aria-hidden="true" tabindex="-1"></a><span class="in">    if (length(unique(wd$land_use)) &lt; 2) return(NULL)</span></span>
+<span id="cb16-628"><a href="#cb16-628" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-629"><a href="#cb16-629" aria-hidden="true" tabindex="-1"></a><span class="in">    m &lt;- fit_lme_safe(y ~ land_use, wd, rand_primary)</span></span>
+<span id="cb16-630"><a href="#cb16-630" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(m) &amp;&amp; response_group != &quot;microclimate&quot;)</span></span>
+<span id="cb16-631"><a href="#cb16-631" aria-hidden="true" tabindex="-1"></a><span class="in">      m &lt;- fit_lme_safe(y ~ land_use, wd, rand_fallback)</span></span>
+<span id="cb16-632"><a href="#cb16-632" aria-hidden="true" tabindex="-1"></a><span class="in">    if (is.null(m)) return(NULL)</span></span>
+<span id="cb16-633"><a href="#cb16-633" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-634"><a href="#cb16-634" aria-hidden="true" tabindex="-1"></a><span class="in">    tt  &lt;- summary(m)$tTable</span></span>
+<span id="cb16-635"><a href="#cb16-635" aria-hidden="true" tabindex="-1"></a><span class="in">    r2  &lt;- r2_lme(m)</span></span>
+<span id="cb16-636"><a href="#cb16-636" aria-hidden="true" tabindex="-1"></a><span class="in">    phi &lt;- tryCatch(</span></span>
+<span id="cb16-637"><a href="#cb16-637" aria-hidden="true" tabindex="-1"></a><span class="in">      as.numeric(coef(m$modelStruct$corStruct, unconstrained = FALSE)),</span></span>
+<span id="cb16-638"><a href="#cb16-638" aria-hidden="true" tabindex="-1"></a><span class="in">      error = \(e) NA_real_</span></span>
+<span id="cb16-639"><a href="#cb16-639" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
+<span id="cb16-640"><a href="#cb16-640" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-641"><a href="#cb16-641" aria-hidden="true" tabindex="-1"></a><span class="in">    tibble(</span></span>
+<span id="cb16-642"><a href="#cb16-642" aria-hidden="true" tabindex="-1"></a><span class="in">      response       = response_var,</span></span>
+<span id="cb16-643"><a href="#cb16-643" aria-hidden="true" tabindex="-1"></a><span class="in">      response_group = response_group,</span></span>
+<span id="cb16-644"><a href="#cb16-644" aria-hidden="true" tabindex="-1"></a><span class="in">      date_start     = as.Date(w_name),</span></span>
+<span id="cb16-645"><a href="#cb16-645" aria-hidden="true" tabindex="-1"></a><span class="in">      season         = season_lookup$season[month(as.Date(w_name))],</span></span>
+<span id="cb16-646"><a href="#cb16-646" aria-hidden="true" tabindex="-1"></a><span class="in">      n_obs          = nrow(wd),</span></span>
+<span id="cb16-647"><a href="#cb16-647" aria-hidden="true" tabindex="-1"></a><span class="in">      beta_land_use  = tt[&quot;land_use&quot;, &quot;Value&quot;],</span></span>
+<span id="cb16-648"><a href="#cb16-648" aria-hidden="true" tabindex="-1"></a><span class="in">      se_land_use    = tt[&quot;land_use&quot;, &quot;Std.Error&quot;],</span></span>
+<span id="cb16-649"><a href="#cb16-649" aria-hidden="true" tabindex="-1"></a><span class="in">      t_value        = tt[&quot;land_use&quot;, &quot;t-value&quot;],</span></span>
+<span id="cb16-650"><a href="#cb16-650" aria-hidden="true" tabindex="-1"></a><span class="in">      p_value        = tt[&quot;land_use&quot;, &quot;p-value&quot;],</span></span>
+<span id="cb16-651"><a href="#cb16-651" aria-hidden="true" tabindex="-1"></a><span class="in">      ar1_phi        = phi,</span></span>
+<span id="cb16-652"><a href="#cb16-652" aria-hidden="true" tabindex="-1"></a><span class="in">      r2_marginal    = as.numeric(r2[&quot;R2m&quot;]),</span></span>
+<span id="cb16-653"><a href="#cb16-653" aria-hidden="true" tabindex="-1"></a><span class="in">      r2_conditional = as.numeric(r2[&quot;R2c&quot;]),</span></span>
+<span id="cb16-654"><a href="#cb16-654" aria-hidden="true" tabindex="-1"></a><span class="in">      delta_r2       = as.numeric(r2[&quot;R2c&quot;]) - as.numeric(r2[&quot;R2m&quot;])</span></span>
+<span id="cb16-655"><a href="#cb16-655" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
+<span id="cb16-656"><a href="#cb16-656" aria-hidden="true" tabindex="-1"></a><span class="in">  })</span></span>
+<span id="cb16-657"><a href="#cb16-657" aria-hidden="true" tabindex="-1"></a><span class="in">}</span></span>
+<span id="cb16-658"><a href="#cb16-658" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-659"><a href="#cb16-659" aria-hidden="true" tabindex="-1"></a><span class="in">message(&quot;&gt;&gt;&gt; Running H1 rolling-window models...&quot;)</span></span>
 <span id="cb16-660"><a href="#cb16-660" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-661"><a href="#cb16-661" aria-hidden="true" tabindex="-1"></a><span class="in">h1_results &lt;- suppressWarnings(</span></span>
-<span id="cb16-662"><a href="#cb16-662" aria-hidden="true" tabindex="-1"></a><span class="in">  imap_dfr(h1_response_map,</span></span>
-<span id="cb16-663"><a href="#cb16-663" aria-hidden="true" tabindex="-1"></a><span class="in">           ~ fit_h1_windows(.y, .x, data_sem_raw, WIN_DAYS, MIN_RATE))</span></span>
-<span id="cb16-664"><a href="#cb16-664" aria-hidden="true" tabindex="-1"></a><span class="in">) %&gt;%</span></span>
-<span id="cb16-665"><a href="#cb16-665" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(season = factor(season,</span></span>
-<span id="cb16-666"><a href="#cb16-666" aria-hidden="true" tabindex="-1"></a><span class="in">                         levels = c(&quot;Spring&quot;, &quot;Summer&quot;, &quot;Autumn&quot;, &quot;Winter&quot;)))</span></span>
-<span id="cb16-667"><a href="#cb16-667" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-668"><a href="#cb16-668" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(&quot;H1 rolling-window complete: %d rows | %d responses&quot;,</span></span>
-<span id="cb16-669"><a href="#cb16-669" aria-hidden="true" tabindex="-1"></a><span class="in">                nrow(h1_results), n_distinct(h1_results$response)))</span></span>
-<span id="cb16-670"><a href="#cb16-670" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb16-671"><a href="#cb16-671" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-672"><a href="#cb16-672" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb16-661"><a href="#cb16-661" aria-hidden="true" tabindex="-1"></a><span class="in">h1_response_map &lt;- c(</span></span>
+<span id="cb16-662"><a href="#cb16-662" aria-hidden="true" tabindex="-1"></a><span class="in">  setNames(rep(&quot;microclimate&quot;, 2),            microclimate_index),</span></span>
+<span id="cb16-663"><a href="#cb16-663" aria-hidden="true" tabindex="-1"></a><span class="in">  root_growth_cm2_count_24h = &quot;root&quot;,</span></span>
+<span id="cb16-664"><a href="#cb16-664" aria-hidden="true" tabindex="-1"></a><span class="in">  setNames(rep(&quot;fauna&quot;, length(fauna_vars)),  fauna_vars)</span></span>
+<span id="cb16-665"><a href="#cb16-665" aria-hidden="true" tabindex="-1"></a><span class="in">)</span></span>
+<span id="cb16-666"><a href="#cb16-666" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-667"><a href="#cb16-667" aria-hidden="true" tabindex="-1"></a><span class="in">h1_results &lt;- suppressWarnings(</span></span>
+<span id="cb16-668"><a href="#cb16-668" aria-hidden="true" tabindex="-1"></a><span class="in">  imap_dfr(h1_response_map,</span></span>
+<span id="cb16-669"><a href="#cb16-669" aria-hidden="true" tabindex="-1"></a><span class="in">           ~ fit_h1_windows(.y, .x, data_sem_raw, WIN_DAYS, MIN_RATE))</span></span>
+<span id="cb16-670"><a href="#cb16-670" aria-hidden="true" tabindex="-1"></a><span class="in">) %&gt;%</span></span>
+<span id="cb16-671"><a href="#cb16-671" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(season = factor(season,</span></span>
+<span id="cb16-672"><a href="#cb16-672" aria-hidden="true" tabindex="-1"></a><span class="in">                         levels = c(&quot;Spring&quot;, &quot;Summer&quot;, &quot;Autumn&quot;, &quot;Winter&quot;)))</span></span>
 <span id="cb16-673"><a href="#cb16-673" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-674"><a href="#cb16-674" aria-hidden="true" tabindex="-1"></a><span class="fu"># Indirect effect computation</span></span>
-<span id="cb16-675"><a href="#cb16-675" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-676"><a href="#cb16-676" aria-hidden="true" tabindex="-1"></a><span class="in">```{r indirect-effects}</span></span>
-<span id="cb16-677"><a href="#cb16-677" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Path-product indirect effects ─────────────────────────────────────────────</span></span>
-<span id="cb16-678"><a href="#cb16-678" aria-hidden="true" tabindex="-1"></a><span class="in"># Indirect effects = products of standardised β values along each causal route.</span></span>
+<span id="cb16-674"><a href="#cb16-674" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(&quot;H1 rolling-window complete: %d rows | %d responses&quot;,</span></span>
+<span id="cb16-675"><a href="#cb16-675" aria-hidden="true" tabindex="-1"></a><span class="in">                nrow(h1_results), n_distinct(h1_results$response)))</span></span>
+<span id="cb16-676"><a href="#cb16-676" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-677"><a href="#cb16-677" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-678"><a href="#cb16-678" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
 <span id="cb16-679"><a href="#cb16-679" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-680"><a href="#cb16-680" aria-hidden="true" tabindex="-1"></a><span class="in">mc1_resp &lt;- &quot;microclimate_1&quot;</span></span>
-<span id="cb16-681"><a href="#cb16-681" aria-hidden="true" tabindex="-1"></a><span class="in">mc2_resp &lt;- &quot;microclimate_2&quot;</span></span>
-<span id="cb16-682"><a href="#cb16-682" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-683"><a href="#cb16-683" aria-hidden="true" tabindex="-1"></a><span class="in">coefs_wide &lt;- sem_results_raw %&gt;%</span></span>
-<span id="cb16-684"><a href="#cb16-684" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!str_detect(predictor, &quot;~~&quot;), !is.na(std_estimate)) %&gt;%</span></span>
-<span id="cb16-685"><a href="#cb16-685" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(coef_id = paste0(predictor, &quot;__&quot;, response)) %&gt;%</span></span>
-<span id="cb16-686"><a href="#cb16-686" aria-hidden="true" tabindex="-1"></a><span class="in">  select(taxon, date_start, coef_id, std_estimate) %&gt;%</span></span>
-<span id="cb16-687"><a href="#cb16-687" aria-hidden="true" tabindex="-1"></a><span class="in">  pivot_wider(names_from = coef_id, values_from = std_estimate, values_fn = mean)</span></span>
+<span id="cb16-680"><a href="#cb16-680" aria-hidden="true" tabindex="-1"></a><span class="fu"># Indirect effect computation</span></span>
+<span id="cb16-681"><a href="#cb16-681" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-682"><a href="#cb16-682" aria-hidden="true" tabindex="-1"></a><span class="in">```{r indirect-effects}</span></span>
+<span id="cb16-683"><a href="#cb16-683" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Path-product indirect effects ─────────────────────────────────────────────</span></span>
+<span id="cb16-684"><a href="#cb16-684" aria-hidden="true" tabindex="-1"></a><span class="in"># Indirect effects = products of standardised β values along each causal route.</span></span>
+<span id="cb16-685"><a href="#cb16-685" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-686"><a href="#cb16-686" aria-hidden="true" tabindex="-1"></a><span class="in">mc1_resp &lt;- &quot;microclimate_1&quot;</span></span>
+<span id="cb16-687"><a href="#cb16-687" aria-hidden="true" tabindex="-1"></a><span class="in">mc2_resp &lt;- &quot;microclimate_2&quot;</span></span>
 <span id="cb16-688"><a href="#cb16-688" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-689"><a href="#cb16-689" aria-hidden="true" tabindex="-1"></a><span class="in">get_col &lt;- \(df, col) if (col %in% names(df)) df[[col]] else rep(NA_real_, nrow(df))</span></span>
-<span id="cb16-690"><a href="#cb16-690" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-691"><a href="#cb16-691" aria-hidden="true" tabindex="-1"></a><span class="in">indirect_effects &lt;- coefs_wide %&gt;%</span></span>
-<span id="cb16-692"><a href="#cb16-692" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(</span></span>
-<span id="cb16-693"><a href="#cb16-693" aria-hidden="true" tabindex="-1"></a><span class="in">    b1 = get_col(., paste0(&quot;land_use__&quot;, mc1_resp)),  # lu → mc1 (β₁)</span></span>
-<span id="cb16-694"><a href="#cb16-694" aria-hidden="true" tabindex="-1"></a><span class="in">    b2 = get_col(., paste0(&quot;land_use__&quot;, mc2_resp)),  # lu → mc2 (β₂)</span></span>
-<span id="cb16-695"><a href="#cb16-695" aria-hidden="true" tabindex="-1"></a><span class="in">    b3 = get_col(., paste0(mc1_resp,     &quot;__root&quot;)),  # mc1 → root (β₃)</span></span>
-<span id="cb16-696"><a href="#cb16-696" aria-hidden="true" tabindex="-1"></a><span class="in">    b4 = get_col(., paste0(mc2_resp,     &quot;__root&quot;)),  # mc2 → root (β₄)</span></span>
-<span id="cb16-697"><a href="#cb16-697" aria-hidden="true" tabindex="-1"></a><span class="in">    b5 = get_col(., &quot;land_use__root&quot;),                # lu → root (β₅)</span></span>
-<span id="cb16-698"><a href="#cb16-698" aria-hidden="true" tabindex="-1"></a><span class="in">    b6 = get_col(., paste0(mc1_resp,     &quot;__fauna&quot;)), # mc1 → fauna (β₆)</span></span>
-<span id="cb16-699"><a href="#cb16-699" aria-hidden="true" tabindex="-1"></a><span class="in">    b7 = get_col(., paste0(mc2_resp,     &quot;__fauna&quot;)), # mc2 → fauna (β₇)</span></span>
-<span id="cb16-700"><a href="#cb16-700" aria-hidden="true" tabindex="-1"></a><span class="in">    b8 = get_col(., &quot;root__fauna&quot;),                   # root → fauna (β₈)</span></span>
-<span id="cb16-701"><a href="#cb16-701" aria-hidden="true" tabindex="-1"></a><span class="in">    b9 = get_col(., &quot;land_use__fauna&quot;),               # lu → fauna direct (β₉)</span></span>
-<span id="cb16-702"><a href="#cb16-702" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-703"><a href="#cb16-703" aria-hidden="true" tabindex="-1"></a><span class="in">    direct         = b9,</span></span>
-<span id="cb16-704"><a href="#cb16-704" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc1        = b1 * b6,</span></span>
-<span id="cb16-705"><a href="#cb16-705" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc2        = b2 * b7,</span></span>
-<span id="cb16-706"><a href="#cb16-706" aria-hidden="true" tabindex="-1"></a><span class="in">    via_root       = b5 * b8,</span></span>
-<span id="cb16-707"><a href="#cb16-707" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc1_root   = b1 * b3 * b8,</span></span>
-<span id="cb16-708"><a href="#cb16-708" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc2_root   = b2 * b4 * b8,</span></span>
-<span id="cb16-709"><a href="#cb16-709" aria-hidden="true" tabindex="-1"></a><span class="in">    total_indirect = via_mc1 + via_mc2 + via_root + via_mc1_root + via_mc2_root,</span></span>
-<span id="cb16-710"><a href="#cb16-710" aria-hidden="true" tabindex="-1"></a><span class="in">    total_effect   = direct + total_indirect</span></span>
-<span id="cb16-711"><a href="#cb16-711" aria-hidden="true" tabindex="-1"></a><span class="in">  ) %&gt;%</span></span>
-<span id="cb16-712"><a href="#cb16-712" aria-hidden="true" tabindex="-1"></a><span class="in">  select(taxon, date_start,</span></span>
-<span id="cb16-713"><a href="#cb16-713" aria-hidden="true" tabindex="-1"></a><span class="in">         direct, via_mc1, via_mc2, via_root,</span></span>
-<span id="cb16-714"><a href="#cb16-714" aria-hidden="true" tabindex="-1"></a><span class="in">         via_mc1_root, via_mc2_root, total_indirect, total_effect) %&gt;%</span></span>
-<span id="cb16-715"><a href="#cb16-715" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(</span></span>
-<span id="cb16-716"><a href="#cb16-716" aria-hidden="true" tabindex="-1"></a><span class="in">    month  = month(as.Date(date_start)),</span></span>
-<span id="cb16-717"><a href="#cb16-717" aria-hidden="true" tabindex="-1"></a><span class="in">    season = case_when(</span></span>
-<span id="cb16-718"><a href="#cb16-718" aria-hidden="true" tabindex="-1"></a><span class="in">      month %in% 3:5  ~ &quot;Spring&quot;,</span></span>
-<span id="cb16-719"><a href="#cb16-719" aria-hidden="true" tabindex="-1"></a><span class="in">      month %in% 6:8  ~ &quot;Summer&quot;,</span></span>
-<span id="cb16-720"><a href="#cb16-720" aria-hidden="true" tabindex="-1"></a><span class="in">      month %in% 9:11 ~ &quot;Autumn&quot;,</span></span>
-<span id="cb16-721"><a href="#cb16-721" aria-hidden="true" tabindex="-1"></a><span class="in">      TRUE            ~ &quot;Winter&quot;</span></span>
-<span id="cb16-722"><a href="#cb16-722" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
-<span id="cb16-723"><a href="#cb16-723" aria-hidden="true" tabindex="-1"></a><span class="in">  ) %&gt;%</span></span>
-<span id="cb16-724"><a href="#cb16-724" aria-hidden="true" tabindex="-1"></a><span class="in">  select(-month)</span></span>
-<span id="cb16-725"><a href="#cb16-725" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-726"><a href="#cb16-726" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(indirect_effects, &quot;../output/indirect_effects.csv&quot;, row.names = FALSE)</span></span>
-<span id="cb16-727"><a href="#cb16-727" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb16-728"><a href="#cb16-728" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-729"><a href="#cb16-729" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb16-730"><a href="#cb16-730" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-731"><a href="#cb16-731" aria-hidden="true" tabindex="-1"></a><span class="fu"># Export</span></span>
-<span id="cb16-732"><a href="#cb16-732" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-733"><a href="#cb16-733" aria-hidden="true" tabindex="-1"></a><span class="in">```{r export}</span></span>
-<span id="cb16-734"><a href="#cb16-734" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Add season and path_id to SEM results ────────────────────────────────────</span></span>
-<span id="cb16-735"><a href="#cb16-735" aria-hidden="true" tabindex="-1"></a><span class="in">sem_results &lt;- sem_results_raw %&gt;%</span></span>
-<span id="cb16-736"><a href="#cb16-736" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!str_detect(predictor, &quot;~~&quot;)) %&gt;%</span></span>
-<span id="cb16-737"><a href="#cb16-737" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(path_id = paste(predictor, &quot;\u2192&quot;, response),</span></span>
-<span id="cb16-738"><a href="#cb16-738" aria-hidden="true" tabindex="-1"></a><span class="in">         month   = month(date_start)) %&gt;%</span></span>
-<span id="cb16-739"><a href="#cb16-739" aria-hidden="true" tabindex="-1"></a><span class="in">  left_join(season_lookup, by = &quot;month&quot;) %&gt;%</span></span>
-<span id="cb16-740"><a href="#cb16-740" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(season = factor(season,</span></span>
-<span id="cb16-741"><a href="#cb16-741" aria-hidden="true" tabindex="-1"></a><span class="in">                         levels = c(&quot;Spring&quot;, &quot;Summer&quot;, &quot;Autumn&quot;, &quot;Winter&quot;)))</span></span>
-<span id="cb16-742"><a href="#cb16-742" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-743"><a href="#cb16-743" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(sem_results, &quot;../output/SEM_results_database.csv&quot;, row.names = FALSE)</span></span>
-<span id="cb16-744"><a href="#cb16-744" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(h1_results,  &quot;../output/H1_results_database.csv&quot;,  row.names = FALSE)</span></span>
-<span id="cb16-745"><a href="#cb16-745" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-746"><a href="#cb16-746" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(</span></span>
-<span id="cb16-747"><a href="#cb16-747" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;Export complete:</span></span>
-<span id="cb16-748"><a href="#cb16-748" aria-hidden="true" tabindex="-1"></a><span class="in">  SEM results : %d rows | %d taxa | %d unique paths</span></span>
-<span id="cb16-749"><a href="#cb16-749" aria-hidden="true" tabindex="-1"></a><span class="in">  H1 results  : %d rows | %d responses</span></span>
-<span id="cb16-750"><a href="#cb16-750" aria-hidden="true" tabindex="-1"></a><span class="in">  Indirect eff: %d rows | %d taxa</span></span>
-<span id="cb16-751"><a href="#cb16-751" aria-hidden="true" tabindex="-1"></a><span class="in">  Full psem   : DAG_coefficients.csv + DAG_model_fit.csv</span></span>
-<span id="cb16-752"><a href="#cb16-752" aria-hidden="true" tabindex="-1"></a><span class="in">  H1 global   : H1_adjusted_values.csv + H1_model_summary.csv&quot;,</span></span>
-<span id="cb16-753"><a href="#cb16-753" aria-hidden="true" tabindex="-1"></a><span class="in">  nrow(sem_results),      n_distinct(sem_results$taxon),</span></span>
-<span id="cb16-754"><a href="#cb16-754" aria-hidden="true" tabindex="-1"></a><span class="in">  n_distinct(sem_results$path_id),</span></span>
-<span id="cb16-755"><a href="#cb16-755" aria-hidden="true" tabindex="-1"></a><span class="in">  nrow(h1_results),       n_distinct(h1_results$response),</span></span>
-<span id="cb16-756"><a href="#cb16-756" aria-hidden="true" tabindex="-1"></a><span class="in">  nrow(indirect_effects), n_distinct(indirect_effects$taxon)</span></span>
-<span id="cb16-757"><a href="#cb16-757" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
-<span id="cb16-758"><a href="#cb16-758" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb16-759"><a href="#cb16-759" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-760"><a href="#cb16-760" aria-hidden="true" tabindex="-1"></a>| Output file | Contents |</span>
-<span id="cb16-761"><a href="#cb16-761" aria-hidden="true" tabindex="-1"></a>|----|----|</span>
-<span id="cb16-762"><a href="#cb16-762" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_adjusted_values.csv`</span> | Per-observation null-model residuals |</span>
-<span id="cb16-763"><a href="#cb16-763" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_model_summary.csv`</span> | β, SE, t, p, Hedge&#39;s g, R² (two-step H1 model) |</span>
-<span id="cb16-764"><a href="#cb16-764" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_results_database.csv`</span> | Rolling-window H1 estimates (all responses) |</span>
-<span id="cb16-765"><a href="#cb16-765" aria-hidden="true" tabindex="-1"></a>| <span class="in">`DAG_coefficients.csv`</span> | Full-dataset psem path coefficients |</span>
-<span id="cb16-766"><a href="#cb16-766" aria-hidden="true" tabindex="-1"></a>| <span class="in">`DAG_model_fit.csv`</span> | Fisher&#39;s C, AIC |</span>
-<span id="cb16-767"><a href="#cb16-767" aria-hidden="true" tabindex="-1"></a>| <span class="in">`SEM_results_database.csv`</span> | Rolling-window path coefficients (all taxa) |</span>
-<span id="cb16-768"><a href="#cb16-768" aria-hidden="true" tabindex="-1"></a>| <span class="in">`indirect_effects.csv`</span> | Rolling-window indirect effect products (all taxa) |</span></code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></pre></div>
+<span id="cb16-689"><a href="#cb16-689" aria-hidden="true" tabindex="-1"></a><span class="in">coefs_wide &lt;- sem_results_raw %&gt;%</span></span>
+<span id="cb16-690"><a href="#cb16-690" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!str_detect(predictor, &quot;~~&quot;), !is.na(std_estimate)) %&gt;%</span></span>
+<span id="cb16-691"><a href="#cb16-691" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(coef_id = paste0(predictor, &quot;__&quot;, response)) %&gt;%</span></span>
+<span id="cb16-692"><a href="#cb16-692" aria-hidden="true" tabindex="-1"></a><span class="in">  select(taxon, date_start, coef_id, std_estimate) %&gt;%</span></span>
+<span id="cb16-693"><a href="#cb16-693" aria-hidden="true" tabindex="-1"></a><span class="in">  pivot_wider(names_from = coef_id, values_from = std_estimate, values_fn = mean)</span></span>
+<span id="cb16-694"><a href="#cb16-694" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-695"><a href="#cb16-695" aria-hidden="true" tabindex="-1"></a><span class="in">get_col &lt;- \(df, col) if (col %in% names(df)) df[[col]] else rep(NA_real_, nrow(df))</span></span>
+<span id="cb16-696"><a href="#cb16-696" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-697"><a href="#cb16-697" aria-hidden="true" tabindex="-1"></a><span class="in">indirect_effects &lt;- coefs_wide %&gt;%</span></span>
+<span id="cb16-698"><a href="#cb16-698" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(</span></span>
+<span id="cb16-699"><a href="#cb16-699" aria-hidden="true" tabindex="-1"></a><span class="in">    b1 = get_col(., paste0(&quot;land_use__&quot;, mc1_resp)),  # lu → mc1 (β₁)</span></span>
+<span id="cb16-700"><a href="#cb16-700" aria-hidden="true" tabindex="-1"></a><span class="in">    b2 = get_col(., paste0(&quot;land_use__&quot;, mc2_resp)),  # lu → mc2 (β₂)</span></span>
+<span id="cb16-701"><a href="#cb16-701" aria-hidden="true" tabindex="-1"></a><span class="in">    b3 = get_col(., paste0(mc1_resp,     &quot;__root&quot;)),  # mc1 → root (β₃)</span></span>
+<span id="cb16-702"><a href="#cb16-702" aria-hidden="true" tabindex="-1"></a><span class="in">    b4 = get_col(., paste0(mc2_resp,     &quot;__root&quot;)),  # mc2 → root (β₄)</span></span>
+<span id="cb16-703"><a href="#cb16-703" aria-hidden="true" tabindex="-1"></a><span class="in">    b5 = get_col(., &quot;land_use__root&quot;),                # lu → root (β₅)</span></span>
+<span id="cb16-704"><a href="#cb16-704" aria-hidden="true" tabindex="-1"></a><span class="in">    b6 = get_col(., paste0(mc1_resp,     &quot;__fauna&quot;)), # mc1 → fauna (β₆)</span></span>
+<span id="cb16-705"><a href="#cb16-705" aria-hidden="true" tabindex="-1"></a><span class="in">    b7 = get_col(., paste0(mc2_resp,     &quot;__fauna&quot;)), # mc2 → fauna (β₇)</span></span>
+<span id="cb16-706"><a href="#cb16-706" aria-hidden="true" tabindex="-1"></a><span class="in">    b8 = get_col(., &quot;root__fauna&quot;),                   # root → fauna (β₈)</span></span>
+<span id="cb16-707"><a href="#cb16-707" aria-hidden="true" tabindex="-1"></a><span class="in">    b9 = get_col(., &quot;land_use__fauna&quot;),               # lu → fauna direct (β₉)</span></span>
+<span id="cb16-708"><a href="#cb16-708" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-709"><a href="#cb16-709" aria-hidden="true" tabindex="-1"></a><span class="in">    direct         = b9,</span></span>
+<span id="cb16-710"><a href="#cb16-710" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc1        = b1 * b6,</span></span>
+<span id="cb16-711"><a href="#cb16-711" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc2        = b2 * b7,</span></span>
+<span id="cb16-712"><a href="#cb16-712" aria-hidden="true" tabindex="-1"></a><span class="in">    via_root       = b5 * b8,</span></span>
+<span id="cb16-713"><a href="#cb16-713" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc1_root   = b1 * b3 * b8,</span></span>
+<span id="cb16-714"><a href="#cb16-714" aria-hidden="true" tabindex="-1"></a><span class="in">    via_mc2_root   = b2 * b4 * b8,</span></span>
+<span id="cb16-715"><a href="#cb16-715" aria-hidden="true" tabindex="-1"></a><span class="in">    total_indirect = via_mc1 + via_mc2 + via_root + via_mc1_root + via_mc2_root,</span></span>
+<span id="cb16-716"><a href="#cb16-716" aria-hidden="true" tabindex="-1"></a><span class="in">    total_effect   = direct + total_indirect</span></span>
+<span id="cb16-717"><a href="#cb16-717" aria-hidden="true" tabindex="-1"></a><span class="in">  ) %&gt;%</span></span>
+<span id="cb16-718"><a href="#cb16-718" aria-hidden="true" tabindex="-1"></a><span class="in">  select(taxon, date_start,</span></span>
+<span id="cb16-719"><a href="#cb16-719" aria-hidden="true" tabindex="-1"></a><span class="in">         direct, via_mc1, via_mc2, via_root,</span></span>
+<span id="cb16-720"><a href="#cb16-720" aria-hidden="true" tabindex="-1"></a><span class="in">         via_mc1_root, via_mc2_root, total_indirect, total_effect) %&gt;%</span></span>
+<span id="cb16-721"><a href="#cb16-721" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(</span></span>
+<span id="cb16-722"><a href="#cb16-722" aria-hidden="true" tabindex="-1"></a><span class="in">    month  = month(as.Date(date_start)),</span></span>
+<span id="cb16-723"><a href="#cb16-723" aria-hidden="true" tabindex="-1"></a><span class="in">    season = case_when(</span></span>
+<span id="cb16-724"><a href="#cb16-724" aria-hidden="true" tabindex="-1"></a><span class="in">      month %in% 3:5  ~ &quot;Spring&quot;,</span></span>
+<span id="cb16-725"><a href="#cb16-725" aria-hidden="true" tabindex="-1"></a><span class="in">      month %in% 6:8  ~ &quot;Summer&quot;,</span></span>
+<span id="cb16-726"><a href="#cb16-726" aria-hidden="true" tabindex="-1"></a><span class="in">      month %in% 9:11 ~ &quot;Autumn&quot;,</span></span>
+<span id="cb16-727"><a href="#cb16-727" aria-hidden="true" tabindex="-1"></a><span class="in">      TRUE            ~ &quot;Winter&quot;</span></span>
+<span id="cb16-728"><a href="#cb16-728" aria-hidden="true" tabindex="-1"></a><span class="in">    )</span></span>
+<span id="cb16-729"><a href="#cb16-729" aria-hidden="true" tabindex="-1"></a><span class="in">  ) %&gt;%</span></span>
+<span id="cb16-730"><a href="#cb16-730" aria-hidden="true" tabindex="-1"></a><span class="in">  select(-month)</span></span>
+<span id="cb16-731"><a href="#cb16-731" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-732"><a href="#cb16-732" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(indirect_effects, &quot;../output/indirect_effects.csv&quot;, row.names = FALSE)</span></span>
+<span id="cb16-733"><a href="#cb16-733" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-734"><a href="#cb16-734" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-735"><a href="#cb16-735" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb16-736"><a href="#cb16-736" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-737"><a href="#cb16-737" aria-hidden="true" tabindex="-1"></a><span class="fu"># Export</span></span>
+<span id="cb16-738"><a href="#cb16-738" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-739"><a href="#cb16-739" aria-hidden="true" tabindex="-1"></a><span class="in">```{r export}</span></span>
+<span id="cb16-740"><a href="#cb16-740" aria-hidden="true" tabindex="-1"></a><span class="in"># ── Add season and path_id to SEM results ────────────────────────────────────</span></span>
+<span id="cb16-741"><a href="#cb16-741" aria-hidden="true" tabindex="-1"></a><span class="in">sem_results &lt;- sem_results_raw %&gt;%</span></span>
+<span id="cb16-742"><a href="#cb16-742" aria-hidden="true" tabindex="-1"></a><span class="in">  filter(!str_detect(predictor, &quot;~~&quot;)) %&gt;%</span></span>
+<span id="cb16-743"><a href="#cb16-743" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(path_id = paste(predictor, &quot;\u2192&quot;, response),</span></span>
+<span id="cb16-744"><a href="#cb16-744" aria-hidden="true" tabindex="-1"></a><span class="in">         month   = month(date_start)) %&gt;%</span></span>
+<span id="cb16-745"><a href="#cb16-745" aria-hidden="true" tabindex="-1"></a><span class="in">  left_join(season_lookup, by = &quot;month&quot;) %&gt;%</span></span>
+<span id="cb16-746"><a href="#cb16-746" aria-hidden="true" tabindex="-1"></a><span class="in">  mutate(season = factor(season,</span></span>
+<span id="cb16-747"><a href="#cb16-747" aria-hidden="true" tabindex="-1"></a><span class="in">                         levels = c(&quot;Spring&quot;, &quot;Summer&quot;, &quot;Autumn&quot;, &quot;Winter&quot;)))</span></span>
+<span id="cb16-748"><a href="#cb16-748" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-749"><a href="#cb16-749" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(sem_results, &quot;../output/SEM_results_database.csv&quot;, row.names = FALSE)</span></span>
+<span id="cb16-750"><a href="#cb16-750" aria-hidden="true" tabindex="-1"></a><span class="in">write.csv(h1_results,  &quot;../output/H1_results_database.csv&quot;,  row.names = FALSE)</span></span>
+<span id="cb16-751"><a href="#cb16-751" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-752"><a href="#cb16-752" aria-hidden="true" tabindex="-1"></a><span class="in">message(sprintf(</span></span>
+<span id="cb16-753"><a href="#cb16-753" aria-hidden="true" tabindex="-1"></a><span class="in">  &quot;Export complete:</span></span>
+<span id="cb16-754"><a href="#cb16-754" aria-hidden="true" tabindex="-1"></a><span class="in">  SEM results : %d rows | %d taxa | %d unique paths</span></span>
+<span id="cb16-755"><a href="#cb16-755" aria-hidden="true" tabindex="-1"></a><span class="in">  H1 results  : %d rows | %d responses</span></span>
+<span id="cb16-756"><a href="#cb16-756" aria-hidden="true" tabindex="-1"></a><span class="in">  Indirect eff: %d rows | %d taxa</span></span>
+<span id="cb16-757"><a href="#cb16-757" aria-hidden="true" tabindex="-1"></a><span class="in">  Full psem   : DAG_coefficients.csv + DAG_model_fit.csv</span></span>
+<span id="cb16-758"><a href="#cb16-758" aria-hidden="true" tabindex="-1"></a><span class="in">  H1 global   : H1_adjusted_values.csv + H1_model_summary.csv&quot;,</span></span>
+<span id="cb16-759"><a href="#cb16-759" aria-hidden="true" tabindex="-1"></a><span class="in">  nrow(sem_results),      n_distinct(sem_results$taxon),</span></span>
+<span id="cb16-760"><a href="#cb16-760" aria-hidden="true" tabindex="-1"></a><span class="in">  n_distinct(sem_results$path_id),</span></span>
+<span id="cb16-761"><a href="#cb16-761" aria-hidden="true" tabindex="-1"></a><span class="in">  nrow(h1_results),       n_distinct(h1_results$response),</span></span>
+<span id="cb16-762"><a href="#cb16-762" aria-hidden="true" tabindex="-1"></a><span class="in">  nrow(indirect_effects), n_distinct(indirect_effects$taxon)</span></span>
+<span id="cb16-763"><a href="#cb16-763" aria-hidden="true" tabindex="-1"></a><span class="in">))</span></span>
+<span id="cb16-764"><a href="#cb16-764" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-765"><a href="#cb16-765" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-766"><a href="#cb16-766" aria-hidden="true" tabindex="-1"></a>| Output file | Contents |</span>
+<span id="cb16-767"><a href="#cb16-767" aria-hidden="true" tabindex="-1"></a>|------------------------------------|------------------------------------|</span>
+<span id="cb16-768"><a href="#cb16-768" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_adjusted_values.csv`</span> | Per-observation null-model residuals |</span>
+<span id="cb16-769"><a href="#cb16-769" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_model_summary.csv`</span> | β, SE, t, p, Hedge&#39;s g, R² (two-step H1 model) |</span>
+<span id="cb16-770"><a href="#cb16-770" aria-hidden="true" tabindex="-1"></a>| <span class="in">`H1_results_database.csv`</span> | Rolling-window H1 estimates (all responses) |</span>
+<span id="cb16-771"><a href="#cb16-771" aria-hidden="true" tabindex="-1"></a>| <span class="in">`DAG_coefficients.csv`</span> | Full-dataset psem path coefficients |</span>
+<span id="cb16-772"><a href="#cb16-772" aria-hidden="true" tabindex="-1"></a>| <span class="in">`DAG_model_fit.csv`</span> | Fisher&#39;s C, AIC |</span>
+<span id="cb16-773"><a href="#cb16-773" aria-hidden="true" tabindex="-1"></a>| <span class="in">`SEM_results_database.csv`</span> | Rolling-window path coefficients (all taxa) |</span>
+<span id="cb16-774"><a href="#cb16-774" aria-hidden="true" tabindex="-1"></a>| <span class="in">`indirect_effects.csv`</span> | Rolling-window indirect effect products (all taxa) |</span></code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></pre></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 

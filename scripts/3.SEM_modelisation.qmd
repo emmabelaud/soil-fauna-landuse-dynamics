@@ -27,7 +27,7 @@ This script is the **third step** of the SEM pipeline, following:
 This script performs **all modelling** and writes the result databases that `4_SEM_results_analysis.qmd` reads for figures and tables. No figures are produced here — keeping computation and presentation strictly separated makes it easy to re-run the visualisation without refitting any model.
 
 | Output file                | Contents                                       |
-|----------------------------|------------------------------------------------|
+|---------------------------|---------------------------------------------|
 | `H1_adjusted_values.csv`   | Per-observation RE-adjusted faunal counts      |
 | `H1_model_summary.csv`     | Fixed-effect estimate, Hedge's g, p-value      |
 | `DAG_coefficients.csv`     | Full-dataset psem path coefficients (all_taxa) |
@@ -54,7 +54,7 @@ The residual covariance `microclimate_1 %~~% microclimate_2` is included explici
 ## Random structures
 
 | Equation | Random structure | Rationale |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | microclimate \~ land_use | `~ 1 \| depth` | No orientation recorded for sensors |
 | root / fauna \~ … | `~ 1 \| orientation/depth` | Depth nested in orientation |
 
@@ -70,7 +70,7 @@ invisible(Sys.setlocale("LC_TIME", "C"))
 libs <- c(
   "tidyverse", "lubridate", "piecewiseSEM",
   "purrr", "nlme", "jsonlite",
-  "knitr", "kableExtra"
+  "knitr", "kableExtra", "MuMIn"         
 )
 invisible(lapply(libs, require, character.only = TRUE))
 
@@ -104,8 +104,8 @@ if (file.exists("../output/model_parameters.txt")) {
   MIN_RATE               <- 0.3
   TRANSFO_ROOT           <- "log"
   TRANSFO_FAUNA          <- "log"
-  TRANSFO_MICROCLIMATE_1 <- "none"
-  TRANSFO_MICROCLIMATE_2 <- "none"
+  TRANSFO_MICROCLIMATE_1 <- "sqrt_plus_one"
+  TRANSFO_MICROCLIMATE_2 <- "sqrt_plus_one"
   warning("model_parameters.txt not found — using hardcoded fallback values.")
 }
 
@@ -198,18 +198,18 @@ data_transformed <- data_sem_raw %>%
 # ── LME controls ──────────────────────────────────────────────────────────────
 lme_ctrl <- nlme::lmeControl(msMaxIter = 200, opt = "optim")
 
-# ── R² for nlme::lme (variance-based) ────────────────────────────────────────
-# R²m (marginal)    = var(fixed predictions) / var(observed)
-# R²c (conditional) = var(full predictions)  / var(observed)
+# ── R² pour nlme::lme — Nakagawa & Schielzeth 2013 via MuMIn ─────────────────
+# MuMIn::r.squaredGLMM returns a matrix [method × (R2m, R2c)].
+# For Gaussian models (lme), the "delta" method is prioritized;
+# if it fails, the first available row is used.
 r2_lme <- function(m) {
   if (is.null(m)) return(c(R2m = NA_real_, R2c = NA_real_))
   tryCatch({
-    y   <- as.numeric(nlme::getResponse(m))
-    ss  <- var(y, na.rm = TRUE)
-    if (is.na(ss) || ss == 0) return(c(R2m = NA_real_, R2c = NA_real_))
-    r2m <- var(as.numeric(fitted(m, level = 0)),                na.rm = TRUE) / ss
-    r2c <- var(as.numeric(fitted(m, level = length(m$groups))), na.rm = TRUE) / ss
-    c(R2m = min(max(r2m, 0), 1), R2c = min(max(r2c, 0), 1))
+    r2_mat <- MuMIn::r.squaredGLMM(m)       
+    row_nm  <- rownames(r2_mat)
+    idx     <- if (!is.null(row_nm) && "delta" %in% row_nm) "delta" else 1L
+    c(R2m = as.numeric(r2_mat[idx, "R2m"]),
+      R2c = as.numeric(r2_mat[idx, "R2c"]))
   }, error = \(e) c(R2m = NA_real_, R2c = NA_real_))
 }
 
@@ -263,10 +263,13 @@ h1_model_data <- data_sem_raw %>%
                     levels = c("Spring", "Summer", "Autumn", "Winter"))
   )
 
-# Step 1: null model (intercept only + random effects)
-m_null <- suppressWarnings(
+# Single model: fauna ~ land_use + random(orientation/depth) + AR(1)
+# This is the H1 model proper. The adjusted values below strip only the
+# random effects, preserving the intercept and land_use fixed prediction,
+# so the Y axis is fauna on the transformed scale — not residuals.
+m_h1 <- suppressWarnings(
   nlme::lme(
-    y_trans ~ 1,
+    y_trans ~ land_use,
     data        = h1_model_data,
     random      = ~ 1 | orientation / depth,
     correlation = nlme::corAR1(form = ~ 1 | orientation / depth),
@@ -274,22 +277,24 @@ m_null <- suppressWarnings(
   )
 )
 
-h1_resid <- residuals(m_null, type = "response")
+# adjusted = fitted (fixed effects only, level = 0) + marginal residuals
+# = observed - random effects        ← real fauna scale, spatial confound removed
+h1_adj_values <- fitted(m_h1, level = 0) + residuals(m_h1, type = "response")
 
-# Step 2: OLS on residuals
-m_h1_step2 <- lm(h1_resid ~ h1_model_data$land_use)
-step2_summ  <- summary(m_h1_step2)
-beta_lu     <- coef(m_h1_step2)["h1_model_data$land_use"]
-se_lu       <- step2_summ$coefficients["h1_model_data$land_use", "Std. Error"]
-t_lu        <- step2_summ$coefficients["h1_model_data$land_use", "t value"]
-p_lu        <- step2_summ$coefficients["h1_model_data$land_use", "Pr(>|t|)"]
+# Extract H1 fixed-effect estimates directly from the single model
+h1_tbl      <- summary(m_h1)$tTable
+beta_lu     <- h1_tbl["land_use", "Value"]
+se_lu       <- h1_tbl["land_use", "Std.Error"]
+t_lu        <- h1_tbl["land_use", "t-value"]
+p_lu        <- h1_tbl["land_use", "p-value"]
 
-sigma_pooled <- sd(h1_resid, na.rm = TRUE)
+sigma_pooled <- sd(h1_adj_values, na.rm = TRUE)
 hedges_g     <- beta_lu / sigma_pooled
-r2_null      <- r2_lme(m_null)
+r2_h1        <- r2_lme(m_h1)
+
 
 h1_adj <- h1_model_data %>%
-  mutate(adj_value = as.numeric(h1_resid), transformation = TRANSFO_FAUNA)
+  mutate(adj_value = as.numeric(h1_adj_values), transformation = TRANSFO_FAUNA)
 write.csv(h1_adj, "../output/H1_adjusted_values.csv", row.names = FALSE)
 
 h1_summary <- tibble(
@@ -298,19 +303,20 @@ h1_summary <- tibble(
   t_value             = t_lu,
   p_value             = p_lu,
   hedges_g            = hedges_g,
-  r2_null_marginal    = as.numeric(r2_null["R2m"]),
-  r2_null_conditional = as.numeric(r2_null["R2c"]),
-  r2_step2            = step2_summ$r.squared,
+  r2_marginal         = as.numeric(r2_h1["R2m"]),   # land_use fixed effect
+  r2_conditional      = as.numeric(r2_h1["R2c"]),   # fixed + random
   n_obs               = nrow(h1_model_data),
   transformation      = TRANSFO_FAUNA
 )
 write.csv(h1_summary, "../output/H1_model_summary.csv", row.names = FALSE)
 
 message(sprintf(
-  "H1 | β = %.3f | g = %.2f | p %s | R²(lu) = %.3f | R²c(null) = %.3f",
-  beta_lu, hedges_g,
+  "H1 | β = %.3f | g = %.2f | p %s | R²m = %.3f | R²c = %.3f",
+  beta_lu, 
+  hedges_g,
   if (p_lu < 0.001) "< 0.001" else sprintf("= %.3f", p_lu),
-  step2_summ$r.squared, as.numeric(r2_null["R2c"])
+  h1_summary$r2_marginal, 
+  h1_summary$r2_conditional
 ))
 ```
 
@@ -758,7 +764,7 @@ message(sprintf(
 ```
 
 | Output file | Contents |
-|----|----|
+|------------------------------------|------------------------------------|
 | `H1_adjusted_values.csv` | Per-observation null-model residuals |
 | `H1_model_summary.csv` | β, SE, t, p, Hedge's g, R² (two-step H1 model) |
 | `H1_results_database.csv` | Rolling-window H1 estimates (all responses) |
