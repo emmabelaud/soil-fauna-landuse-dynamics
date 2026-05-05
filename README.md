@@ -19,7 +19,7 @@ The system combines annual crop rotations with rows of black locust (*Robinia ps
 ## Hypotheses
 
 | \# | Statement |
-|-----------------|------------------------------------------------------|
+|------------------------------------|------------------------------------|
 | **H1** | Land-use effects on soil fauna are inherently non-stationary: their magnitude and direction shift through time in response to seasonal cycles and discrete management events. |
 | **H2** | The indirect pathways linking land use to faunal activity vary over time in intensity, as the dominant causal mechanism alternates between microclimatic forcing and resource-mediated (root) pathways. |
 | **H3** | Periods of strong land-use forcing reduce response diversity by driving convergence in taxon-specific responses, thereby transiently constraining the functional heterogeneity of the community. |
@@ -44,6 +44,8 @@ Tier 3 — microclimate + root × land use drives fauna
 
 Indirect effects are computed as products of standardised path coefficients along each causal route. A total of seven pathway estimates are derived per window: five indirect routes, the total indirect (sum of the five), and the total effect (direct + total indirect).
 
+![](images/DAG.png)
+
 ------------------------------------------------------------------------
 
 ## Response diversity (H3)
@@ -63,7 +65,7 @@ D = 1 when taxon responses span zero symmetrically (half positive, half negative
 Scripts must be run in order. Script 2 is computationally intensive.
 
 | Script | Role | Key outputs |
-|---------------------|------------------|----------------------------------|
+|------------------------|------------------------|------------------------|
 | `1_database_edition.qmd` | Assembles fauna, microclimate, root, and season data into one analysis-ready table | `SEM_database.csv`, `fauna_vars.txt`, `microclimate_index.txt` |
 | `2_SEM_diagnostic.qmd` | Sensitivity analysis over 120 (window × completeness × transformation) combinations; selects the optimal modelling configuration | `model_parameters.txt` |
 | `3_SEM_modelisation.qmd` | Fits the full rolling-window pSEM for all taxa; computes indirect effects and the divergence index | `SEM_results_database.csv`, `indirect_effects.csv`, `H1_*.csv`, `DAG_*.csv` |
