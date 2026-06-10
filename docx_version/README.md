@@ -1,9 +1,15 @@
 ---
-output:
-  word_document: default
-  html_document: default
+title: "Land-use effects on soil fauna are temporally unstable"
+format:
+  docx:
+    highlight-style: github
+    fig-dpi: 300
+    reference-doc: custom-reference.docx
+execute:
+  warning: false
+  message: false
+  echo: false
 ---
-## Land-use effects on soil fauna are temporally unstable
 
 ## Study description
 
@@ -11,15 +17,11 @@ Soil invertebrate communities were monitored at 6-hour resolution over nearly tw
 
 The rolling-window approach — fitting the model on successive overlapping 14-day windows advanced in daily steps rather than on the full time series — is central to the study design. It yields a distribution of standardised path coefficients over time, capturing how the strength and sign of causal links fluctuate across seasons and in direct response to management events. A divergence index is additionally computed per window to track whether land-use forcing compresses or sustains inter-taxon response heterogeneity.
 
-------------------------------------------------------------------------
-
 ## Study site
 
 The study was conducted at the experimental agroforestry site **DIAMs** (*Dispositif Instrumenté en Agroforesterie Méditerranéenne sous contrainte hydrique*) established in 2017 at the INRAE experimental station UE Diascope (Mauguio, Hérault, France; 43.612°N, 3.976°E), under a semi-arid Mediterranean climate (mean annual temperature 15.7 °C, mean annual precipitation 511 mm). Soils are classified as Skeletic Rhodic Luvisols with high stone content (\> 60%) and a clay-rich horizon below 100 cm.
 
 The system combines annual crop rotations with rows of black locust (*Robinia pseudoacacia* L.) spaced 17 m apart, each row bordered by a 2 m-wide permanent grass strip. During the study period, the cropping sequence was: durum wheat (sown Dec 2023, harvested 8 Jul 2024) → sorghum (sown 15 Jul 2024, mown 22 Nov, tilled 25 Nov 2024; irrigated three times in Jul–Aug 2024) → chickpea (sown 14 Mar 2025, harvested 10 Jul 2025).
-
-------------------------------------------------------------------------
 
 ## Hypotheses
 
@@ -28,30 +30,25 @@ The system combines annual crop rotations with rows of black locust (*Robinia ps
 | **H1** | Land-use effects on soil fauna are inherently non-stationary: their magnitude and direction shift through time in response to seasonal cycles and discrete management events. |
 | **H2** | The indirect pathways linking land use to faunal activity vary over time in intensity, as the dominant causal mechanism alternates between microclimatic forcing and resource-mediated (root) pathways. |
 | **H3** | Periods of strong land-use forcing reduce response diversity by driving convergence in taxon-specific responses, thereby transiently constraining the functional heterogeneity of the community. |
-
-------------------------------------------------------------------------
+: Research hypotheses for the rolling-window pSEM analysis {#tbl-hypotheses}
 
 ## Causal model (piecewise SEM)
 
 All variables are z-score standardised within each window prior to modelling; land-use type is retained on its binary scale (treed = 0, cultivated = 1). Each structural equation is fitted as a linear mixed-effects model with a nested random intercept (`orientation / depth`) and an AR(1) correlation structure. A residual covariance term (`microclimate_1 %~~% microclimate_2`) captures shared physical drivers not represented by the binary land-use contrast.
 
-```         
-Tier 1 — land use shapes microclimate
-  microclimate_1 ← β₁ · land_use
-  microclimate_2 ← β₂ · land_use
-
-Tier 2 — microclimate × land use drives root growth
-  root ← β₃ · mc₁ + β₄ · mc₂ + β₅ · land_use
-
-Tier 3 — microclimate + root × land use drives fauna
-  fauna ← β₆ · mc₁ + β₇ · mc₂ + β₈ · root + β₉ · land_use
-```
+> **Tier 1 — Land use shapes microclimate**
+> * $\text{microclimate}_1 \leftarrow \beta_1 \cdot \text{land\_use}$
+> * $\text{microclimate}_2 \leftarrow \beta_2 \cdot \text{land\_use}$
+>
+> **Tier 2 — Microclimate × Land use drives root growth**
+> * $\text{root} \leftarrow \beta_3 \cdot \text{mc}_1 + \beta_4 \cdot \text{mc}_2 + \beta_5 \cdot \text{land\_use}$
+>
+> **Tier 3 — Microclimate + Root × Land use drives fauna**
+> * $\text{fauna} \leftarrow \beta_6 \cdot \text{mc}_1 + \beta_7 \cdot \text{mc}_2 + \beta_8 \cdot \text{root} + \beta_9 \cdot \text{land\_use}$
 
 Indirect effects are computed as products of standardised path coefficients along each causal route. A total of seven pathway estimates are derived per window: five indirect routes, the total indirect (sum of the five), and the total effect (direct + total indirect).
 
-![](images/DAG.png)
-
-------------------------------------------------------------------------
+![Structural Equation Meta-Model (DAG) detailing the hypothesized causal pathways.](images/DAG.png){#fig-dag width=85%}
 
 ## Response diversity (H3)
 
@@ -62,8 +59,6 @@ D(w,k) = [max(β) − min(β) − |max(β) + min(β)|] / [max(β) − min(β)]
 ```
 
 D = 1 when taxon responses span zero symmetrically (half positive, half negative); D = 0 when all taxa respond in the same direction. The relationship between D and the absolute community-level β is modelled with a GLS incorporating an AR(1) error structure.
-
-------------------------------------------------------------------------
 
 ## Pipeline
 
@@ -82,8 +77,6 @@ quarto::quarto_render("scripts/2_SEM_diagnostic.qmd")
 quarto::quarto_render("scripts/3_SEM_modelisation.qmd")
 quarto::quarto_render("scripts/4_SEM_results_analysis.qmd")
 ```
-
-------------------------------------------------------------------------
 
 ## Repository structure
 
@@ -112,8 +105,6 @@ project/
     ├── 3_SEM_modelisation.qmd
     └── 4_SEM_results_analysis.qmd
 ```
-
-------------------------------------------------------------------------
 
 ## Dependencies
 
