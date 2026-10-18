@@ -936,9 +936,6 @@ h3_taxa_win <- h3_win_raw %>% filter(taxon != "all_taxa")
 # how spread across the sign boundary the taxon-specific land-use responses
 # are within each temporal snapshot.
 #
-# IQR-fence outlier removal (1.5 × IQR) is applied per pathway on both the
-# divergence values and the |community β| values before the regression step,
-# to prevent rare extreme windows from dominating the GLS slope.
 # ══════════════════════════════════════════════════════════════════════════════
 
 compute_divergence <- function(df) {
@@ -968,24 +965,7 @@ h3_div <- h3_taxa_win %>%
   mutate(
     community_beta = abs(community_beta),
     path_id        = factor(path_id, levels = pathway_order)
-  ) %>%
-  # IQR-fence outliers per pathway on both axes
-  group_by(path_id) %>%
-  mutate(
-    q1_d     = quantile(divergence,     0.25, na.rm = TRUE),
-    q3_d     = quantile(divergence,     0.75, na.rm = TRUE),
-    iqr_d    = q3_d - q1_d,
-    q1_beta  = quantile(community_beta, 0.25, na.rm = TRUE),
-    q3_beta  = quantile(community_beta, 0.75, na.rm = TRUE),
-    iqr_beta = q3_beta - q1_beta
-  ) %>%
-  filter(
-    divergence     >= (q1_d    - 1.5 * iqr_d)    &
-    divergence     <= (q3_d    + 1.5 * iqr_d),
-    community_beta >= (q1_beta - 1.5 * iqr_beta) &
-    community_beta <= (q3_beta + 1.5 * iqr_beta)
-  ) %>%
-  ungroup()
+  ) 
 ```
 
 ## GLS regression: divergence ~ |community β|
