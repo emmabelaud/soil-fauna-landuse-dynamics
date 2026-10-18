@@ -121,7 +121,7 @@ season_fills <- c(Spring = "#f9f9f9", Summer = "#eeeeee",
 
 # ── Agricultural and irrigation event landmarks ───────────────────────────────
 # Used as vertical reference lines in all time-series figures.
-# Red dotted = crop management events; green dotted = irrigation events.
+# Red dashed = crop management events; blue dashed = irrigation events.
 interventions <- data.frame(
   date = as.Date(c(
     "2024-07-08", "2024-07-15",
@@ -313,9 +313,9 @@ effects.
 #|   removed, preserving the intercept so that the Y axis is in fauna units
 #|   (log-transformed scale). (B) Temporal dynamics of random-effect-adjusted
 #|   fauna values with LOESS smoothers (span = 0.18). Green = treed (A);
-#|   orange = cultivated (C). Shaded bands = meteorological seasons. Dotted red
+#|   orange = cultivated (C). Shaded bands = meteorological seasons. Dashed red
 #|   vertical lines = agricultural interventions (wheat harvest, sorghum sowing,
-#|   mowing, tillage, chickpea sowing). Dotted green vertical lines = irrigation
+#|   mowing, tillage, chickpea sowing). Dashed blue vertical lines = irrigation
 #|   events.
 #| fig-width: 14
 #| fig-height: 6
@@ -369,9 +369,9 @@ p_temp <- ggplot(
   make_season_layers(range(as.Date(h1_adj$date), na.rm = TRUE),
                      y_label_pos = shared_ylim[2]) +
   geom_vline(data = interventions, aes(xintercept = date),
-             colour = "darkred",   linetype = "dotted", alpha = 0.7) +
+             colour = "tomato",   linetype = "dashed", alpha = 0.5, linewidth = 0.5) +
   geom_vline(data = irrigation,    aes(xintercept = date),
-             colour = "darkgreen", linetype = "dotted", alpha = 0.7) +
+             colour = "royalblue", linetype = "dashed", alpha = 0.5, linewidth = .5) +
   geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.35,
              linetype = "dashed") +
   # Raw observations: very transparent to show local density without clutter
@@ -715,8 +715,8 @@ h2_marginal <- h2_ts %>%
 #|   winsorising); open circle = rolling-window median; filled circle =
 #|   full time-series piecewise SEM estimate ± 1 SE.
 #|   (B) LOESS-smoothed (span = 0.30) time series of standardised β-products.
-#|   Shaded bands = meteorological seasons. Dotted red lines = agricultural
-#|   interventions; dotted green lines = irrigation events. Sign convention:
+#|   Shaded bands = meteorological seasons. Dashed red lines = agricultural
+#|   interventions; dashed blue lines = irrigation events. Sign convention:
 #|   A = 0, C = 1 — negative values indicate a stronger effect in the treed
 #|   system. Both panels share the same y-axis.
 #| fig-width: 18
@@ -804,9 +804,9 @@ p_time <- ggplot(
 ) +
   make_season_layers(date_range_h2, y_label_pos = shared_ylim_h2[2] * 0.9) +
   geom_vline(data = interventions, aes(xintercept = date),
-             colour = "darkred",   linetype = "dotted", alpha = 0.7) +
+             colour = "tomato",   linetype = "dashed", alpha = 0.5, linewidth = .5) +
   geom_vline(data = irrigation,    aes(xintercept = date),
-             colour = "darkgreen", linetype = "dotted", alpha = 0.7) +
+             colour = "royalblue", linetype = "dashed", alpha = 0.5, linewidth = .5) +
   geom_hline(yintercept = 0, linetype = "dashed",
              colour = "grey55", linewidth = 0.4) +
   geom_line(linewidth = 0.75) +
@@ -1095,13 +1095,13 @@ make_dual_panel <- function(pid, show_xaxis = TRUE) {
 
   p <- ggplot(dat, aes(x = date_start)) +
     make_season_layers(dr, y_label_pos = d_rng[2]) +
-    # Agricultural events (red dotted) and irrigation (green dotted)
+    # Agricultural events (red dotted) and irrigation (blue dotted)
     geom_vline(data = interventions, aes(xintercept = date),
-               colour = "darkred",   linetype = "dotted",
-               alpha = 0.6, inherit.aes = FALSE) +
+               colour = "tomato",   linetype = "dashed",
+               alpha = 0.5, inherit.aes = FALSE, linewidth = .5) +
     geom_vline(data = irrigation, aes(xintercept = date),
-               colour = "darkgreen", linetype = "dotted",
-               alpha = 0.6, inherit.aes = FALSE) +
+               colour = "royalblue", linetype = "dashed",
+               alpha = 0.5, inherit.aes = FALSE, linewidth = .5) +
     # Zero-β reference line (rescaled to divergence axis)
     geom_hline(yintercept = rescale_b_to_d(0),
                linetype = "dashed", colour = "grey55", linewidth = 0.3) +
@@ -1163,8 +1163,8 @@ make_dual_panel <- function(pid, show_xaxis = TRUE) {
 #|   slope and significance (*** p < 0.001).
 #|   (B–H) Temporal co-variation of divergence (coloured line; left axis) and
 #|   |community β| (grey line; right axis) per pathway, as LOESS smoothers
-#|   (span = 0.10). Shaded bands = meteorological seasons. Dotted red lines =
-#|   agricultural interventions; dotted green lines = irrigation events.
+#|   (span = 0.10). Shaded bands = meteorological seasons. Dashed red lines =
+#|   agricultural interventions; dashed blue lines = irrigation events.
 #| fig-width: 18
 #| fig-height: 30
 
