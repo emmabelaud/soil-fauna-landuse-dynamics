@@ -96,11 +96,11 @@ pos_colours <- c("Treed (A)" = "#717F55", "Cultivated (C)" = "#FF994E")
 path_meta <- tribble(
   ~path_id,         ~label,                                                 ~colour,   ~ltype,
   "direct",         "Direct (lu\u2192fauna)",                               "#F9BB05", "solid",
-  "via_mc1",        paste0("lu\u2192", mc1_pred, "\u2192fauna"),            "#BCD094", "solid",
-  "via_mc2",        paste0("lu\u2192", mc2_pred, "\u2192fauna"),            "#717F55", "solid",
+  "via_mc1",        paste0("lu\u2192", mc1_pred, "\u2192fauna"),            "#FF7E1F", "solid",
+  "via_mc2",        paste0("lu\u2192", mc2_pred, "\u2192fauna"),            "#FF994E", "solid",
   "via_root",       "lu\u2192root\u2192fauna",                              "#C45300", "solid",
-  "via_mc1_root",   paste0("lu\u2192", mc1_pred, "\u2192root\u2192fauna"),  "#FF7E1F", "solid",
-  "via_mc2_root",   paste0("lu\u2192", mc2_pred, "\u2192root\u2192fauna"),  "#FF994E", "solid",
+  "via_mc1_root",   paste0("lu\u2192", mc1_pred, "\u2192root\u2192fauna"),  "#BCD094", "solid",
+  "via_mc2_root",   paste0("lu\u2192", mc2_pred, "\u2192root\u2192fauna"),  "#717F55", "solid",
   "total_indirect", "Total indirect",                                        "#999999", "solid",
   "total_effect",   "Total effect",                                          "#444444", "solid"
 )
